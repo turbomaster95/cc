@@ -1,29 +1,77 @@
-PHONY := 
+PHONY :=
 
 CC = gcc
-CFLAGS = -Wall -Wextra -O2
-LIBS = 
+COPTS =
+CFLAGS = $(COPTS) -Wall -Wextra -Iinclude -Iobj -Wno-unused 
+LIBS = obj/libnu.a
 LEX = flex
-YACC = bison -y
+YACC = bison -y -Wno-other -Wno-yacc -Wno-conflicts-sr
 
-TARGET = c99
+ARCH ?= x86
+TARGET = c99$(ARCH)
 
-SRCS = c99.c
-OBJS = $(SRCS:.c=.o)
+OBJDIR = obj
+$(shell mkdir -p $(OBJDIR))
 
-PHONY += all
+SRCS = src/main.c src/walker.c
+SRCS += targets/$(ARCH)/codegen.c
+
+OBJS = $(addprefix $(OBJDIR)/, $(notdir $(SRCS:.c=.o)))
+OBJS += $(OBJDIR)/y.tab.o $(OBJDIR)/lex.yy.o
+
+DEPS = $(OBJS:.o=.d)
+
 all: $(TARGET)
 
-$(TARGET): libnu.a nu.h $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) libnu.a $(LIBS)
+$(OBJS): $(OBJDIR)/libnu.a include/nu.h
 
-libnu.a: libnu
-	(cd libnu && ./compile && cp include/nu.h ../ && cp build/libnu.a ../)
+%.d: %.c
+	@set -e; \
+	$(CC) -M $(CFLAGS) $< | sed 's|\($*\)\.o[ :]*|$(OBJDIR)/\1.o $(OBJDIR)/\1.d : |g' > $@; \
+	[ -s $@ ] || rm -f $@
 
-nu.h: libnu.a
+$(OBJDIR)/%.o: src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(OBJDIR)/%.o: targets/$(ARCH)/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(OBJDIR)/y.tab.c $(OBJDIR)/y.tab.h: src/c99.y include/nu.h
+	$(YACC) -d -o $(OBJDIR)/y.tab.c src/c99.y
+
+$(OBJDIR)/lex.yy.c: src/c99.l $(OBJDIR)/y.tab.h include/nu.h
+	$(LEX) -o $(OBJDIR)/lex.yy.c src/c99.l
+
+$(OBJDIR)/y.tab.o: $(OBJDIR)/y.tab.c
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(OBJDIR)/lex.yy.o: $(OBJDIR)/lex.yy.c
+	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(TARGET): $(OBJS) FORCE
+	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBS)
+
+CLEANF += $(OBJDIR)/libnu.a
+$(OBJDIR)/libnu.a:
+	@mkdir -p $(OBJDIR)
+	(cd libnu && ./compile && cp include/nu.h ../include && cp build/libnu.a ../$(OBJDIR))
+
+CLEANF += include/nu.h
+include/nu.h: $(OBJDIR)/libnu.a
 
 PHONY += clean
 clean:
-	rm -f $(TARGET) $(OBJS) libnu.a nu.h
+	rm -f $(TARGET) $(OBJS) $(DEPS) $(CLEANF)
+	rm -rf $(OBJDIR)
+
+PHONY += FORCE
+FORCE:
 
 .PHONY: $(PHONY)
+
+# Include dependency rules
+ifneq ($(MAKECMDGOALS),clean)
+-include $(DEPS)
+endif
