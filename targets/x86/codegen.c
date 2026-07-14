@@ -30,7 +30,9 @@ static void x86_emit(const ir_insn_t *insn) {
             printf("\tsubq %%rax, %%rcx\n");
             printf("\tmovq %%rcx, %%rax\n");
             break;
-            
+	case IR_LABEL:
+            printf(".L%ld:\n", insn->imm_val);
+            break;            
         case IR_MUL:
             printf("\timulq %%rcx, %%rax\n"); // rax = rax * rcx
             break;
@@ -38,13 +40,44 @@ static void x86_emit(const ir_insn_t *insn) {
             printf("\tmovq %%rax, %d(%%rbp)\n", insn->stack_offset);
             break;
         case IR_CMP:
-            printf("\tpopq %%rcx\n\tcmpq %%rax, %%rcx\n");
+            printf("\tcmpq $%ld, %%rax\n", insn->imm_val);
             break;
         case IR_JMP_Z:
-            printf("\tje .L%d\n", insn->imm_val);
+            printf("\tje .L%ld\n", insn->imm_val);
             break;
+
+        case IR_EQ:
+            printf("\tcmpq %%rcx, %%rax\n");
+            printf("\tsete %%al\n");
+            printf("\tmovzbq %%al, %%rax\n");
+            break;
+
+	case IR_JMP:
+            printf("\tjmp .L%ld\n", insn->imm_val);
+            break;
+            
+        case IR_NE:
+            printf("\tcmpq %%rcx, %%rax\n\tsetne %%al\n\tmovzbq %%al, %%rax\n");
+            break;
+            
+        case IR_LT:
+            printf("\tcmpq %%rcx, %%rax\n\tsetl %%al\n\tmovzbq %%al, %%rax\n");
+            break;
+            
+        case IR_GT:
+            printf("\tcmpq %%rcx, %%rax\n\tsetg %%al\n\tmovzbq %%al, %%rax\n");
+            break;
+            
+        case IR_LE:
+            printf("\tcmpq %%rcx, %%rax\n\tsetle %%al\n\tmovzbq %%al, %%rax\n");
+            break;
+            
+        case IR_GE:
+            printf("\tcmpq %%rcx, %%rax\n\tsetge %%al\n\tmovzbq %%al, %%rax\n");
+            break;
+
         default: 
-	    printf("; undefined opcode %zn", insn->op);
+	    printf("; undefined opcode %d\n", insn->op);
             break;
     }
 }

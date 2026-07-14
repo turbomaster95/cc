@@ -169,16 +169,28 @@ shift_expression
 
 relational_expression
     : shift_expression { $$ = $1; }
-    | relational_expression '<' shift_expression { $$ = $1; }
-    | relational_expression '>' shift_expression { $$ = $1; }
-    | relational_expression LE_OP shift_expression { $$ = $1; }
-    | relational_expression GE_OP shift_expression { $$ = $1; }
+    | relational_expression '<' shift_expression { 
+        $$ = nu_ast_new_branch(g_ast, AST_BINARY_LT, 2, $1, $3); 
+    }
+    | relational_expression '>' shift_expression { 
+        $$ = nu_ast_new_branch(g_ast, AST_BINARY_GT, 2, $1, $3); 
+    }
+    | relational_expression LE_OP shift_expression { 
+        $$ = nu_ast_new_branch(g_ast, AST_BINARY_LE, 2, $1, $3); 
+    }
+    | relational_expression GE_OP shift_expression { 
+        $$ = nu_ast_new_branch(g_ast, AST_BINARY_GE, 2, $1, $3); 
+    }
     ;
 
 equality_expression
     : relational_expression { $$ = $1; }
-    | equality_expression EQ_OP relational_expression { $$ = $1; }
-    | equality_expression NE_OP relational_expression { $$ = $1; }
+    | equality_expression EQ_OP relational_expression { 
+        $$ = nu_ast_new_branch(g_ast, AST_BINARY_EQ, 2, $1, $3); 
+    }
+    | equality_expression NE_OP relational_expression { 
+        $$ = nu_ast_new_branch(g_ast, AST_BINARY_NE, 2, $1, $3); 
+    }
     ;
 
 and_expression

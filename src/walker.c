@@ -107,6 +107,31 @@ void compile_ast(nu_ast_node_t *node) {
             break;
         }
 
+        case AST_BINARY_EQ:
+        case AST_BINARY_NE:
+        case AST_BINARY_LT:
+        case AST_BINARY_GT:
+        case AST_BINARY_LE:
+        case AST_BINARY_GE: {
+            compile_ast(node->first_child);               // Left
+            ir_insn_t push = { .op = IR_PUSH_TEMP }; emit_ir(&push);
+            compile_ast(node->first_child->next_sibling); // Right
+            ir_insn_t pop = { .op = IR_POP_TEMP }; emit_ir(&pop);
+            
+            ir_op_t opcode = IR_EQ; 
+            switch(node->type) {
+                case AST_BINARY_EQ: opcode = IR_EQ; break;
+                case AST_BINARY_NE: opcode = IR_NE; break;
+                case AST_BINARY_LT: opcode = IR_LT; break;
+                case AST_BINARY_GT: opcode = IR_GT; break;
+                case AST_BINARY_LE: opcode = IR_LE; break;
+                case AST_BINARY_GE: opcode = IR_GE; break;
+            }
+            ir_insn_t op = { .op = opcode };
+            emit_ir(&op);
+            break;
+        }
+
         case AST_COMPOUND_STATEMENT: {
             for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
                 compile_ast(c);
@@ -156,13 +181,21 @@ void compile_ast(nu_ast_node_t *node) {
         }
 
 	case AST_IF_STATEMENT: {
-	        int label_id = g_label_count++;
-	        compile_ast(node->first_child); // Condition
-	        ir_insn_t cmp = { .op = IR_CMP, .imm_val = 0 }; emit_ir(&cmp); // Compare to 0
-	        ir_insn_t jmp_z = { .op = IR_JMP_Z, .imm_val = label_id }; emit_ir(&jmp_z);
-	        compile_ast(node->first_child->next_sibling); // Body
-	        ir_insn_t lbl = { .op = IR_LABEL, .imm_val = label_id }; emit_ir(&lbl);
-	        break;
+           int label_else = g_label_count++;
+           int label_end = g_label_count++;
+           
+           compile_ast(node->first_child); // Condition
+           ir_insn_t cmp = { .op = IR_CMP, .imm_val = 0 }; emit_ir(&cmp); 
+           ir_insn_t jmp_else = { .op = IR_JMP_Z, .imm_val = label_else }; emit_ir(&jmp_else);           
+           compile_ast(node->first_child->next_sibling); // IF Body
+           ir_insn_t jmp_end = { .op = IR_JMP, .imm_val = label_end }; emit_ir(&jmp_end);
+           
+           ir_insn_t lbl_else = { .op = IR_LABEL, .imm_val = label_else }; emit_ir(&lbl_else);           
+           if (node->first_child->next_sibling->next_sibling) {
+               compile_ast(node->first_child->next_sibling->next_sibling); 
+           }
+           ir_insn_t lbl_end = { .op = IR_LABEL, .imm_val = label_end }; emit_ir(&lbl_end);
+           break;
         }
 
         default:

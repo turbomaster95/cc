@@ -26,6 +26,7 @@ typedef enum {
 
     // Mathematical operations
     IR_ADD, IR_SUB, IR_MUL, IR_DIV,
+    IR_EQ, IR_NE, IR_LT, IR_GT, IR_LE, IR_GE,  
     
     IR_PARAM_DECL,     // Mid-end declares an incoming parameter: label_name at stack_offset
     IR_ARG_PUSH,       // Push an argument expression for an upcoming function call
