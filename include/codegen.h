@@ -36,7 +36,8 @@ typedef enum {
     IR_JMP_Z,          // Jump if zero
     IR_JMP_NZ,         // Jump if not zero
     IR_CMP,            // Compare top two values on stack
-    IR_INLINE_ASM
+    IR_INLINE_ASM,
+    IR_LOAD_STRING,    // Load string literal address
 } ir_op_t;
 
 typedef struct {

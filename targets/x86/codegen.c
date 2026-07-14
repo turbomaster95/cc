@@ -80,6 +80,14 @@ static void x86_emit(const ir_insn_t *insn) {
             printf("\tcmpq %%rcx, %%rax\n\tsetge %%al\n\tmovzbq %%al, %%rax\n");
             break;
 
+	case IR_LOAD_STRING:
+            printf("\t.section .rodata\n");
+            printf(".L_STR_%ld:\n", (long)insn->label_name); // We abuse the pointer as a unique ID
+            printf("\t.string \"%s\"\n", insn->label_name);
+            printf("\t.text\n");
+            printf("\tleaq .L_STR_%ld(%%rip), %%rax\n", (long)insn->label_name);
+            break;
+
         default: 
 	    printf("; undefined opcode %d\n", insn->op);
             break;

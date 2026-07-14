@@ -66,7 +66,7 @@ primary_expression
     }
     | STRING_LITERAL {
         $$ = nu_ast_new_node(g_ast, AST_STRING_LITERAL);
-        nu_ast_set_str(g_ast, $$, $1, strlen($1));
+        nu_ast_set_str(g_ast, $$, $1 + 1, strlen($1) - 2);
     }
     | '(' expression ')' { $$ = $2; }
     ;

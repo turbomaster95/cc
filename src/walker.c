@@ -248,6 +248,30 @@ void compile_ast(nu_ast_node_t *node) {
             break;
         }
 
+        case AST_STRING_LITERAL: {
+            ir_insn_t load_str = { .op = IR_LOAD_STRING, .label_name = node->val.str };
+            emit_ir(&load_str);
+            break;
+        }
+
+        case AST_FUNCTION_CALL: {
+            nu_ast_node_t *func_node = node->first_child;
+            const char *func_name = find_identifier_str(func_node);
+            if (!func_name) func_name = "unknown";
+
+            int arg_index = 0;
+            for (nu_ast_node_t *arg = func_node->next_sibling; arg; arg = arg->next_sibling) {
+                compile_ast(arg); // Evaluates the argument
+                
+                ir_insn_t push_arg = { .op = IR_ARG_PUSH, .param_index = arg_index++ };
+                emit_ir(&push_arg);
+            }
+
+            ir_insn_t call_insn = { .op = IR_CALL, .label_name = func_name };
+            emit_ir(&call_insn);
+            break;
+        }
+
         default:
             for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
                 compile_ast(c);
