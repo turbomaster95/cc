@@ -52,6 +52,10 @@ static void x86_emit(const ir_insn_t *insn) {
             printf("\tmovzbq %%al, %%rax\n");
             break;
 
+        case IR_INLINE_ASM:
+            printf("\t%s\n", insn->label_name); 
+            break;
+
 	case IR_JMP:
             printf("\tjmp .L%ld\n", insn->imm_val);
             break;

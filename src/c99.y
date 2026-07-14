@@ -35,7 +35,7 @@ void yyerror(const char *s);
 %token TYPEDEF EXTERN STATIC AUTO REGISTER INLINE RESTRICT
 %token CHAR SHORT INT LONG SIGNED UNSIGNED FLOAT DOUBLE CONST VOLATILE VOID
 %token BOOL COMPLEX IMAGINARY
-%token STRUCT UNION ENUM ELLIPSIS
+%token STRUCT UNION ENUM ELLIPSIS ASM
 
 %token CASE DEFAULT IF ELSE SWITCH WHILE DO FOR GOTO CONTINUE BREAK RETURN
 
@@ -504,6 +504,10 @@ statement
     | selection_statement { $$ = $1; }
     | iteration_statement { $$ = $1; }
     | jump_statement { $$ = $1; }
+    | ASM '(' STRING_LITERAL ')' ';' { 
+        $$ = nu_ast_new_node(g_ast, AST_INLINE_ASM); 
+        nu_ast_set_str(g_ast, $$, $3 + 1, strlen($3) - 2); 
+    }
     ;
 
 labeled_statement

@@ -35,7 +35,8 @@ typedef enum {
     IR_JMP,            // Unconditional jump
     IR_JMP_Z,          // Jump if zero
     IR_JMP_NZ,         // Jump if not zero
-    IR_CMP             // Compare top two values on stack
+    IR_CMP,            // Compare top two values on stack
+    IR_INLINE_ASM
 } ir_op_t;
 
 typedef struct {

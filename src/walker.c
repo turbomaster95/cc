@@ -87,6 +87,25 @@ void compile_ast(nu_ast_node_t *node) {
 	    }
 	    break;
         }
+        case AST_ASSIGN_EXPR: {
+            nu_ast_node_t *lhs = node->first_child;
+            nu_ast_node_t *rhs = node->last_child;
+
+            if (lhs && rhs && lhs->type == AST_IDENTIFIER && lhs->val.str) {
+                compile_ast(rhs);
+                
+                int32_t offset = lookup_var(lhs->val.str);
+                
+                ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = offset };
+                emit_ir(&store);
+            } else {
+                // Fallback for complex assignments
+                for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
+                    compile_ast(c);
+                }
+            }
+            break;
+        }
         case AST_FUNCTION_DEF: {
             g_frame_offset = 0;
             
@@ -136,6 +155,31 @@ void compile_ast(nu_ast_node_t *node) {
             for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
                 compile_ast(c);
             }
+            break;
+        }
+
+        case AST_WHILE_STATEMENT: {
+            int label_start = g_label_count++;
+            int label_end = g_label_count++;
+
+            ir_insn_t lbl_start = { .op = IR_LABEL, .imm_val = label_start };
+            emit_ir(&lbl_start);
+
+            compile_ast(node->first_child);
+
+            ir_insn_t cmp = { .op = IR_CMP, .imm_val = 0 };
+            emit_ir(&cmp);
+
+            ir_insn_t jmp_end = { .op = IR_JMP_Z, .imm_val = label_end };
+            emit_ir(&jmp_end);
+
+            compile_ast(node->first_child->next_sibling);
+
+            ir_insn_t jmp_start = { .op = IR_JMP, .imm_val = label_start };
+            emit_ir(&jmp_start);
+
+            ir_insn_t lbl_end = { .op = IR_LABEL, .imm_val = label_end };
+            emit_ir(&lbl_end);
             break;
         }
 
@@ -196,6 +240,12 @@ void compile_ast(nu_ast_node_t *node) {
            }
            ir_insn_t lbl_end = { .op = IR_LABEL, .imm_val = label_end }; emit_ir(&lbl_end);
            break;
+        }
+
+        case AST_INLINE_ASM: {
+            ir_insn_t asm_insn = { .op = IR_INLINE_ASM, .label_name = node->val.str };
+            emit_ir(&asm_insn);
+            break;
         }
 
         default:

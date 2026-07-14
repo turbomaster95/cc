@@ -112,7 +112,8 @@ enum DSNodeTypes {
     AST_PARAMETER_LIST,
     AST_PARAMETER_DECLARATION,
     AST_INITIALIZER_LIST,
-    AST_DESIGNATOR           /* Designated initializers like `[.x = 1]` */
+    AST_DESIGNATOR,           /* Designated initializers like `[.x = 1]` */
+    AST_INLINE_ASM
 };
 
 #endif // COMPILER_H

@@ -45,6 +45,8 @@ void error(const char *s);
 "if"            { count(); return(IF); }
 "_Imaginary"        { count(); return(IMAGINARY); }
 "inline"        { count(); return(INLINE); }
+"asm"            { count(); return(ASM); }
+"__asm__"        { count(); return(ASM); }
 "int"            { count(); return(INT); }
 "long"            { count(); return(LONG); }
 "register"        { count(); return(REGISTER); }
