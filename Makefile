@@ -13,7 +13,7 @@ TARGET = c99$(ARCH)
 OBJDIR = obj
 $(shell mkdir -p $(OBJDIR))
 
-SRCS = src/main.c src/walker.c
+SRCS = src/main.c src/walker.c src/code.c
 SRCS += targets/$(ARCH)/codegen.c
 
 OBJS = $(addprefix $(OBJDIR)/, $(notdir $(SRCS:.c=.o)))
