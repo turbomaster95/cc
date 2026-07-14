@@ -26,7 +26,26 @@ static void x86_emit(const ir_insn_t *insn) {
         case IR_CALL:       printf("\tcall %s\n", insn->label_name); break;
         case IR_RETURN:     printf("\tmovq %%rbp, %%rsp\n\tpopq %%rbp\n\tret\n"); break;
         case IR_FUNC_END:   printf("# End %s\n\n", insn->label_name); break;
-        default: break;
+        case IR_SUB:
+            printf("\tsubq %%rax, %%rcx\n");
+            printf("\tmovq %%rcx, %%rax\n");
+            break;
+            
+        case IR_MUL:
+            printf("\timulq %%rcx, %%rax\n"); // rax = rax * rcx
+            break;
+	case IR_STORE_LOCAL:
+            printf("\tmovq %%rax, %d(%%rbp)\n", insn->stack_offset);
+            break;
+        case IR_CMP:
+            printf("\tpopq %%rcx\n\tcmpq %%rax, %%rcx\n");
+            break;
+        case IR_JMP_Z:
+            printf("\tje .L%d\n", insn->imm_val);
+            break;
+        default: 
+	    printf("; undefined opcode %zn", insn->op);
+            break;
     }
 }
 

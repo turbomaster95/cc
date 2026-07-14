@@ -588,12 +588,11 @@ external_declaration
 
 function_definition
     : declaration_specifiers declarator declaration_list compound_statement {
-        $$ = nu_ast_new_branch(g_ast, AST_FUNCTION_DEF, 1, $4);
+        $$ = nu_ast_new_branch(g_ast, AST_FUNCTION_DEF, 2, $2, $4);
     }
     | declaration_specifiers declarator compound_statement {
-        $$ = nu_ast_new_branch(g_ast, AST_FUNCTION_DEF, 1, $3);
+        $$ = nu_ast_new_branch(g_ast, AST_FUNCTION_DEF, 2, $2, $3);
     }
-    ;
 
 declaration_list
     : declaration

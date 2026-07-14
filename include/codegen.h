@@ -8,7 +8,6 @@ struct nu_ast_node;
 typedef enum {
     IR_FUNC_START,   // Starts a function block
     IR_FUNC_END,     // Ends a function block
-    IR_LABEL,
     IR_RETURN,
 
     // Symbol Operations
@@ -30,7 +29,12 @@ typedef enum {
     
     IR_PARAM_DECL,     // Mid-end declares an incoming parameter: label_name at stack_offset
     IR_ARG_PUSH,       // Push an argument expression for an upcoming function call
-    IR_CALL            // Execute call to target label string
+    IR_CALL,           // Execute call to target label string
+    IR_LABEL,          // Marker for jump targets
+    IR_JMP,            // Unconditional jump
+    IR_JMP_Z,          // Jump if zero
+    IR_JMP_NZ,         // Jump if not zero
+    IR_CMP             // Compare top two values on stack
 } ir_op_t;
 
 typedef struct {

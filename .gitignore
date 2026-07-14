@@ -1,6 +1,7 @@
 # Custom
 !.gitignore
 obj/
+c99x86
 
 # Prerequisites
 *.d

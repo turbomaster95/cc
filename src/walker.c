@@ -25,6 +25,22 @@ static const char* find_identifier_str(nu_ast_node_t *node) {
     return NULL;
 }
 
+typedef struct Symbol {
+    char name[32];
+    int32_t offset;
+    struct Symbol *next;
+} Symbol;
+
+static Symbol *g_symbols = NULL;
+
+static int32_t lookup_var(const char *name) {
+    for (Symbol *s = g_symbols; s; s = s->next)
+        if (strcmp(s->name, name) == 0) return s->offset;
+    return 0; // Not found
+}
+
+static int g_label_count = 0;
+
 void compile_ast(nu_ast_node_t *node) {
     if (!node) return;
 
@@ -36,6 +52,41 @@ void compile_ast(nu_ast_node_t *node) {
             break;
         }
 
+	case AST_INTEGER_LITERAL: {
+            ir_insn_t load_imm = { .op = IR_LOAD_INT, .imm_val = node->val.i64 };
+            emit_ir(&load_imm);
+            break;
+        }
+
+	case AST_DECLARATION: {
+	    if (!node->first_child) break;
+    
+	    nu_ast_node_t *decl_node = node->first_child;
+	    const char *name = find_identifier_str(decl_node);
+    
+	    if (!name) break; // Safety net
+
+	    int32_t offset = allocate_local(name);
+
+	    Symbol *s = malloc(sizeof(Symbol));
+	    strcpy(s->name, name); 
+	    s->offset = offset; 
+	    s->next = g_symbols; 
+	    g_symbols = s;
+
+	    // If it's an initialized declaration (e.g., int a = 5), decl_node is AST_ASSIGN_EXPR.
+	    // first_child is the LHS (the identifier), last_child is the RHS (the '5').
+	    if (decl_node->type == AST_ASSIGN_EXPR && 
+	        decl_node->first_child && 
+	        decl_node->last_child && 
+	        decl_node->first_child != decl_node->last_child) {
+        
+	        compile_ast(decl_node->last_child); // Evaluate the RHS
+	        ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = offset };
+	        emit_ir(&store);
+	    }
+	    break;
+        }
         case AST_FUNCTION_DEF: {
             g_frame_offset = 0;
             
@@ -64,22 +115,54 @@ void compile_ast(nu_ast_node_t *node) {
         }
 
 	case AST_RETURN_STATEMENT: {
-            nu_ast_node_t *expr = node->first_child;
-            int64_t ret_val = 0;
+	    nu_ast_node_t *expr = node->first_child;
 
-            if (expr && expr->type == AST_INTEGER_LITERAL) {
-                ret_val = expr->val.i64;
-            }
+	    if (expr) {
+	        if (expr->type == AST_INTEGER_LITERAL) {
+	            ir_insn_t load_imm = { .op = IR_LOAD_INT, .imm_val = expr->val.i64 };
+	            emit_ir(&load_imm);
+	        } else {
+	            compile_ast(expr);
+	        }
+	    }
 
-            ir_insn_t load_imm = {
-                .op = IR_LOAD_INT, 
-                .imm_val = ret_val 
-            };
-            emit_ir(&load_imm);
+	    ir_insn_t ret_insn = { .op = IR_RETURN };
+	    emit_ir(&ret_insn);
+	    break;
+        }
 
-            ir_insn_t ret_insn = { .op = IR_RETURN };
-            emit_ir(&ret_insn);
-            break;
+	case AST_IDENTIFIER: {
+	        ir_insn_t load = { .op = IR_LOAD_LOCAL, .stack_offset = lookup_var(node->val.str) };
+	        emit_ir(&load);
+	        break;
+        }
+
+	case AST_BINARY_ADD: 
+        case AST_BINARY_SUB: 
+	case AST_BINARY_MUL: {
+		compile_ast(node->first_child);               // Left
+	        ir_insn_t push = { .op = IR_PUSH_TEMP }; emit_ir(&push);
+	        compile_ast(node->first_child->next_sibling); // Right
+	        ir_insn_t pop = { .op = IR_POP_TEMP }; emit_ir(&pop);
+
+		ir_op_t opcode = IR_ADD; // dummy init
+                if (node->type == AST_BINARY_ADD) opcode = IR_ADD;
+                else if (node->type == AST_BINARY_SUB) opcode = IR_SUB;
+                else if (node->type == AST_BINARY_MUL) opcode = IR_MUL;
+                
+                ir_insn_t op = { .op = opcode };
+                emit_ir(&op);
+	        break;
+        }
+
+	case AST_IF_STATEMENT: {
+	        int label_id = g_label_count++;
+	        compile_ast(node->first_child); // Condition
+	        ir_insn_t cmp = { .op = IR_CMP, .imm_val = 0 }; emit_ir(&cmp); // Compare to 0
+	        ir_insn_t jmp_z = { .op = IR_JMP_Z, .imm_val = label_id }; emit_ir(&jmp_z);
+	        compile_ast(node->first_child->next_sibling); // Body
+	        ir_insn_t lbl = { .op = IR_LABEL, .imm_val = label_id }; emit_ir(&lbl);
+	        break;
         }
 
         default:
