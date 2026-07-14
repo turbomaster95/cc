@@ -1,0 +1,3 @@
+[submodule "libnu"]
+	path = libnu
+	url = https://github.com/turbomaster95/libnu
