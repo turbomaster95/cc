@@ -9,6 +9,7 @@ YACC = bison -y -Wno-other -Wno-yacc -Wno-conflicts-sr
 
 ARCH ?= x86
 TARGET = c99$(ARCH)
+CPPTARG = cppc
 
 OBJDIR = obj
 $(shell mkdir -p $(OBJDIR))
@@ -21,7 +22,7 @@ OBJS += $(OBJDIR)/y.tab.o $(OBJDIR)/lex.yy.o
 
 DEPS = $(OBJS:.o=.d)
 
-all: $(TARGET)
+all: $(TARGET) $(CPPTARG)
 
 $(OBJS): $(OBJDIR)/libnu.a include/nu.h
 
@@ -53,7 +54,12 @@ $(OBJDIR)/lex.yy.o: $(OBJDIR)/lex.yy.c
 $(TARGET): $(OBJS) FORCE
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBS)
 
+$(CPPTARG): src/pp/*.c FORCE
+	$(CC) $(CFLAGS) -o $@ src/pp/*.c $(LIBS)
+
 CLEANF += $(OBJDIR)/libnu.a
+CLEAND += libnu/build
+CLEANF += libnu/configure
 $(OBJDIR)/libnu.a:
 	@mkdir -p $(OBJDIR)
 	(cd libnu && ./compile && cp include/nu.h ../include && cp build/libnu.a ../$(OBJDIR))
@@ -63,7 +69,8 @@ include/nu.h: $(OBJDIR)/libnu.a
 
 PHONY += clean
 clean:
-	rm -f $(TARGET) $(OBJS) $(DEPS) $(CLEANF)
+	rm -f $(TARGET) $(CPPTARG) $(OBJS) $(DEPS) $(CLEANF)
+	rm -rf $(CLEAND)
 	rm -rf $(OBJDIR)
 
 PHONY += FORCE
