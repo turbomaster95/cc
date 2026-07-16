@@ -2,6 +2,7 @@
 !.gitignore
 obj/
 c99x86
+cppc
 
 # Prerequisites
 *.d
