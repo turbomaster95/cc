@@ -14,11 +14,11 @@ CPPTARG = cppc
 OBJDIR = obj
 $(shell mkdir -p $(OBJDIR))
 
-SRCS = src/main.c src/walker.c src/code.c
+SRCS = src/main.c src/walker.c src/code.c src/parser.c
 SRCS += targets/$(ARCH)/codegen.c
 
 OBJS = $(addprefix $(OBJDIR)/, $(notdir $(SRCS:.c=.o)))
-OBJS += $(OBJDIR)/y.tab.o $(OBJDIR)/lex.yy.o
+OBJS += $(OBJDIR)/lex.yy.o
 
 DEPS = $(OBJS:.o=.d)
 
@@ -39,14 +39,8 @@ $(OBJDIR)/%.o: targets/$(ARCH)/%.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-$(OBJDIR)/y.tab.c $(OBJDIR)/y.tab.h: src/c99.y include/nu.h
-	$(YACC) -d -o $(OBJDIR)/y.tab.c src/c99.y
-
-$(OBJDIR)/lex.yy.c: src/c99.l $(OBJDIR)/y.tab.h include/nu.h
+$(OBJDIR)/lex.yy.c: src/c99.l include/nu.h
 	$(LEX) -o $(OBJDIR)/lex.yy.c src/c99.l
-
-$(OBJDIR)/y.tab.o: $(OBJDIR)/y.tab.c
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(OBJDIR)/lex.yy.o: $(OBJDIR)/lex.yy.c
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@

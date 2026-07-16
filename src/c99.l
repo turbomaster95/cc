@@ -1,3 +1,5 @@
+%option noyywrap
+
 D                       [0-9]
 L                       [a-zA-Z_]
 H                       [a-fA-F0-9]
@@ -11,7 +13,7 @@ IS                      ((u|U)|(u|U)?(l|L|ll|LL)|(l|L|ll|LL)(u|U))
 #include <stdlib.h>
 #include <string.h>
 #include "compiler.h"
-#include "y.tab.h"
+#include "tab.h"
 
 void comment(void);
 void count(void);
@@ -164,11 +166,6 @@ L?\"(\\.|[^\\"\n])*\"    {
 .                { count(); complain(); }
 
 %%
-
-int yywrap(void)
-{
-    return 1;
-}
 
 
 void comment(void)

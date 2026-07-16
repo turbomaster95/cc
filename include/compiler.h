@@ -4,6 +4,7 @@
 #include <nu.h>
 
 enum DSNodeTypes {
+    AST_NONE = 0,
     /* Root & Top-Level Construction */
     AST_TRANSLATION_UNIT = 1000,
     AST_FUNCTION_DEF,
@@ -113,7 +114,11 @@ enum DSNodeTypes {
     AST_PARAMETER_DECLARATION,
     AST_INITIALIZER_LIST,
     AST_DESIGNATOR,           /* Designated initializers like `[.x = 1]` */
-    AST_INLINE_ASM
+    AST_INLINE_ASM,
+    AST_GENERIC_ASSOCIATION,
+    AST_ALIGNOF_EXPR,
+    AST_GENERIC_SELECTION,
+    AST_STATIC_ASSERT
 };
 
 #endif // COMPILER_H
