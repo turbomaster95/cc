@@ -354,9 +354,14 @@ static int is_alignment_specifier(int tok) {
     return g_c11_enabled && (tok == ALIGNAS);
 }
 
-static void parse_declaration_specifiers(void) {
+static int parse_declaration_specifiers(void) {
+    int is_typedef = 0;
     while (1) {
         int tok = p.current.token;
+        if (tok == TYPEDEF) {
+            is_typedef = 1;
+        }
+        
         if (is_storage_class_specifier(tok) || is_type_specifier(tok) ||
             tok == CONST || tok == VOLATILE || tok == RESTRICT || tok == INLINE) {
             advance();
@@ -371,6 +376,7 @@ static void parse_declaration_specifiers(void) {
             break;
         }
     }
+    return is_typedef;
 }
 
 static nu_ast_node_t* parse_declarator(void) {
@@ -425,14 +431,16 @@ static nu_ast_node_t* parse_declaration(void) {
     if (g_c11_enabled && match(STATIC_ASSERT)) {
         return parse_static_assert();
     }
-    parse_declaration_specifiers();
-    int is_typedef = 0;
+
+    int is_typedef = parse_declaration_specifiers();
+
+    if (match(';')) {
+        advance();
+        return NULL;
+    }
+
     while (1) {
         int tok = p.current.token;
-        if (tok == TYPEDEF) {
-            is_typedef = 1;
-        }
-        
         if (is_storage_class_specifier(tok) || is_type_specifier(tok) ||
             tok == CONST || tok == VOLATILE || tok == RESTRICT || tok == INLINE) {
             advance();
@@ -446,10 +454,6 @@ static nu_ast_node_t* parse_declaration(void) {
         } else {
             break;
         }
-    }
-    if (match(';')) {
-        advance();
-        return NULL;
     }
     nu_ast_node_t *decl_list = NULL;
     while (1) {
