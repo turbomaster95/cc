@@ -381,7 +381,7 @@ static nu_ast_node_t* parse_declarator(void) {
         }
     }
     nu_ast_node_t *decl_node = NULL;
-    if (match(IDENTIFIER)) {
+    if (match(IDENTIFIER) || match(TYPE_NAME)) {
         decl_node = nu_ast_new_node(g_ast, AST_IDENTIFIER);
         char *saved_name = dup_string(p.current.text);
         nu_ast_set_str(g_ast, decl_node, saved_name, strlen(saved_name));
@@ -426,6 +426,27 @@ static nu_ast_node_t* parse_declaration(void) {
         return parse_static_assert();
     }
     parse_declaration_specifiers();
+    int is_typedef = 0;
+    while (1) {
+        int tok = p.current.token;
+        if (tok == TYPEDEF) {
+            is_typedef = 1;
+        }
+        
+        if (is_storage_class_specifier(tok) || is_type_specifier(tok) ||
+            tok == CONST || tok == VOLATILE || tok == RESTRICT || tok == INLINE) {
+            advance();
+        } else if (g_c11_enabled && tok == NORETURN) {
+            advance();
+        } else if (is_alignment_specifier(tok)) {
+            advance();
+            consume('(', "Expected '(' after _Alignas");
+            nu_ast_node_t *spec = parse_declarator();
+            consume(')', "Expected matching ')'");
+        } else {
+            break;
+        }
+    }
     if (match(';')) {
         advance();
         return NULL;
@@ -433,6 +454,13 @@ static nu_ast_node_t* parse_declaration(void) {
     nu_ast_node_t *decl_list = NULL;
     while (1) {
         nu_ast_node_t *decl = parse_declarator();
+
+	if (is_typedef && decl && decl->type == AST_IDENTIFIER) {
+            if (decl->val.str) {
+                add_type(decl->val.str);
+            }
+        }
+
         if (match('=')) {
             advance();
             decl = nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, decl, parse_expression());

@@ -17,7 +17,8 @@ IS                      ((u|U)|(u|U)?(l|L|ll|LL)|(l|L|ll|LL)(u|U))
 
 void comment(void);
 void count(void);
-int  check_type(void);
+ int check_type(void);
+void add_type(const char *name);
 void error(const char *s);
 void complain(void);
 
@@ -167,7 +168,6 @@ L?\"(\\.|[^\\"\n])*\"    {
 
 %%
 
-
 void comment(void)
 {
     char c, prev = 0;
@@ -202,19 +202,9 @@ void count(void)
 
 int check_type(void)
 {
-/*
-* pseudo code --- this is what it should check
-*
-*    if (yytext == type_name)
-*        return TYPE_NAME;
-*
-*    return IDENTIFIER;
-*/
-
-/*
-*    it actually will only return IDENTIFIER
-*/
-
+    if (is_registered_type(yytext)) {
+        return TYPE_NAME; 
+    }
     return IDENTIFIER;
 }
 

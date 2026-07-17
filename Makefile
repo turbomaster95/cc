@@ -14,7 +14,7 @@ CPPTARG = cppc
 OBJDIR = obj
 $(shell mkdir -p $(OBJDIR))
 
-SRCS = src/main.c src/walker.c src/code.c src/parser.c
+SRCS = src/main.c src/walker.c src/code.c src/parser.c src/symb.c
 SRCS += targets/$(ARCH)/codegen.c
 
 OBJS = $(addprefix $(OBJDIR)/, $(notdir $(SRCS:.c=.o)))

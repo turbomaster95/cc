@@ -3,6 +3,11 @@
 
 #include <nu.h>
 
+typedef struct TSymb {
+    char *name;
+    struct TSymb *next;
+} TSymb;
+
 enum DSNodeTypes {
     AST_NONE = 0,
     /* Root & Top-Level Construction */
@@ -120,5 +125,12 @@ enum DSNodeTypes {
     AST_GENERIC_SELECTION,
     AST_STATIC_ASSERT
 };
+
+// Adds a name to the user-defined type registry
+void add_type(const char *name);
+
+// Checks if a name is a registered typedef. 
+// Returns 1 (true) or 0 (false)
+int is_registered_type(const char *name);
 
 #endif // COMPILER_H
