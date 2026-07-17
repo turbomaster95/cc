@@ -12,6 +12,7 @@
 #define MAX_PARAMS        32
 #define MAX_ONCE_FILES    256
 #define MAX_EXPAND_DEPTH  64
+#define BUF_CAPACITY 4096
 
 typedef struct {
     char  *data;
@@ -20,7 +21,7 @@ typedef struct {
 } Buf;
 
 static void buf_init(Buf *b) {
-    b->cap = 4096;
+    b->cap = BUF_CAPACITY;
     b->data = malloc(b->cap);
     b->data[0] = '\0';
     b->len = 0;
@@ -206,6 +207,14 @@ static void init_predefined(void) {
     d = &defines[num_defines++];
     strcpy(d->name, "__TIME__");
     d->value = strdup(time_str);
+    d->is_func = false;
+    d->num_params = 0;
+    d->variadic = false;
+   
+    /* __DSCC__ */
+    d = &defines[num_defines++];
+    strcpy(d->name, "__DSCC__");
+    d->value = strdup("");
     d->is_func = false;
     d->num_params = 0;
     d->variadic = false;
