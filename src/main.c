@@ -7,6 +7,7 @@
 
 extern int yyparse(void);
 extern FILE* yyin;
+extern void set_parser_ast_target(nu_ast_t *ast);
 
 nu_mm_t *g_mm = NULL;
 nu_ast_t *g_ast = NULL;
@@ -100,7 +101,7 @@ int main(int argc, char **argv) {
     yyin = file;
     g_ast = nu_ast_create(g_mm);
 
-    if (yyparse() == 0) {        
+    if (yyparse() == 0) {
         if (g_ast->root) {
             compile_ast(g_ast->root);
         }

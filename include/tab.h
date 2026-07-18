@@ -2,7 +2,6 @@
 #define TAB_H
 
 #include <stdint.h>
-#include <nu.h>
 
 typedef union {
     int64_t int_val;
@@ -92,14 +91,14 @@ enum TokenTypes {
     
     ELLIPSIS = 308,    // ...
     ASM = 309,          // inline assembly keyword
-    ALIGN_OP = 2100,
-    GENERIC = 2101,
-    ATOMIC = 2102,
-    THREAD_LOCAL = 2103,
-    ALIGNAS = 2104,
-    NO_RETURN = 2105,
-    NORETURN = 2105,
-    STATIC_ASSERT = 2106
+    ALIGN_OP = 322,
+    GENERIC = 323,
+    ATOMIC = 324,
+    THREAD_LOCAL = 325,
+    ALIGNAS = 326,
+    NO_RETURN = 327,
+    NORETURN = 327,
+    STATIC_ASSERT = 328
 };
 
-#endif // Y_TAB_H
+#endif // TAB_H

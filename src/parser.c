@@ -641,8 +641,15 @@ nu_ast_node_t* parse_translation_unit(void) {
             }
             continue;
         }
-        parse_declaration_specifiers();
+        int is_typedef = parse_declaration_specifiers();
         nu_ast_node_t *decl = parse_declarator();
+
+	if (is_typedef && decl && decl->type == AST_IDENTIFIER) {
+            if (decl->val.str) {
+                add_type(decl->val.str);
+            }
+        }
+
         nu_ast_node_t *unit = NULL;
         if (match('{')) {
             unit = nu_ast_new_branch(g_ast, AST_FUNCTION_DEF, 2, decl, parse_compound_statement());
