@@ -47,6 +47,20 @@ static void x86_emit(const ir_insn_t *insn) {
 	case IR_STORE_LOCAL:
             printf("\tmovq %%rax, %d(%%rbp)\n", insn->stack_offset);
             break;
+	case IR_GLOBAL_DECL: {
+            printf(".data\n%s: .quad 0\n.text\n", insn->label_name);
+            break;
+        }
+
+        case IR_LOAD_GLOBAL: {
+            printf("    movq %s(%%rip), %%rax\n", insn->label_name);
+            break;
+        }
+
+        case IR_STORE_GLOBAL: {
+            printf("    movq %%rax, %s(%%rip)\n", insn->label_name);
+            break;
+        }
         case IR_CMP:
             printf("\tcmpq $%ld, %%rax\n", insn->imm_val);
             break;

@@ -14,6 +14,8 @@ typedef enum {
     IR_LOAD_INT,       // Load immediate value into virtual accumulator
     IR_LOAD_LOCAL,     // Load variable value from symbolic offset
     IR_STORE_LOCAL,    // Store virtual accumulator into symbolic offset
+    IR_STORE_GLOBAL,
+    IR_LOAD_GLOBAL,
     
     // Pointer & Memory Operations
     IR_LEA_LOCAL,      // Load absolute address of a local variable
@@ -29,6 +31,7 @@ typedef enum {
     IR_EQ, IR_NE, IR_LT, IR_GT, IR_LE, IR_GE,  
     
     IR_PARAM_DECL,     // Mid-end declares an incoming parameter: label_name at stack_offset
+    IR_GLOBAL_DECL,
     IR_ARG_PUSH,       // Push an argument expression for an upcoming function call
     IR_CALL,           // Execute call to target label string
     IR_LABEL,          // Marker for jump targets
