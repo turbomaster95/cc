@@ -3,7 +3,7 @@ PHONY :=
 CC = gcc
 COPTS =
 CFLAGS = $(COPTS) -std=c99 -Wall -Wextra -Iinclude -Iobj -Wno-unused
-CFLAGS += -D_POSIX_C_SOURCE=200809L
+CFLAGS += -D_POSIX_C_SOURCE=200809L -MMD -MP
 LIBS = obj/libnu.a
 LEX = flex
 YACC = bison -y -Wno-other -Wno-yacc -Wno-conflicts-sr
@@ -23,34 +23,27 @@ OBJS += $(OBJDIR)/lex.yy.o
 
 DEPS = $(OBJS:.o=.d)
 
+VPATH = src targets/$(ARCH)
+
 all: $(TARGET) $(CPPTARG)
 
-$(OBJS): $(OBJDIR)/libnu.a include/nu.h
+$(OBJS): | $(OBJDIR)/libnu.a include/nu.h
 
-%.d: %.c
-	@set -e; \
-	$(CC) -M $(CFLAGS) $< | sed 's|\($*\)\.o[ :]*|$(OBJDIR)/\1.o $(OBJDIR)/\1.d : |g' > $@; \
-	[ -s $@ ] || rm -f $@
-
-$(OBJDIR)/%.o: src/%.c
+$(OBJDIR)/%.o: %.c
 	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
-
-$(OBJDIR)/%.o: targets/$(ARCH)/%.c
-	@mkdir -p $(@D)
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/lex.yy.c: src/c99.l include/nu.h
 	$(LEX) -o $(OBJDIR)/lex.yy.c src/c99.l
 
 $(OBJDIR)/lex.yy.o: $(OBJDIR)/lex.yy.c
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 $(TARGET): $(OBJS) FORCE
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBS)
 
 $(CPPTARG): src/pp/*.c FORCE
-	$(CC) $(CFLAGS) -o $@ src/pp/*.c $(LIBS)
+	$(CC) $(CFLAGS) -MF $(OBJDIR)/cppc.d -o $@ src/pp/*.c $(LIBS)
 
 CLEANF += $(OBJDIR)/libnu.a
 CLEAND += libnu/build
@@ -73,7 +66,7 @@ FORCE:
 
 .PHONY: $(PHONY)
 
-# Include dependency rules
+# Include dependency rules safely
 ifneq ($(MAKECMDGOALS),clean)
 -include $(DEPS)
 endif
