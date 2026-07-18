@@ -42,7 +42,7 @@ $(OBJDIR)/lex.yy.o: $(OBJDIR)/lex.yy.c
 $(TARGET): $(OBJS) FORCE
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LIBS)
 
-$(CPPTARG): src/pp/*.c FORCE
+$(CPPTARG): src/pp/*.c $(OBJDIR)/libnu.a FORCE
 	$(CC) $(CFLAGS) -MF $(OBJDIR)/cppc.d -o $@ src/pp/*.c $(LIBS)
 
 CLEANF += $(OBJDIR)/libnu.a
