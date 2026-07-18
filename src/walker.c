@@ -6,6 +6,7 @@
 #include <codegen.h>
 
 static int32_t g_frame_offset = 0;
+extern nu_mm_t *g_mm;
 
 static int32_t allocate_local(const char *name) {
     (void)name;
@@ -32,14 +33,81 @@ typedef struct Symbol {
 } Symbol;
 
 static Symbol *g_symbols = NULL;
+static Symbol *g_globals = NULL;
 
 static int32_t lookup_var(const char *name) {
     for (Symbol *s = g_symbols; s; s = s->next)
         if (strcmp(s->name, name) == 0) return s->offset;
+    
+    for (Symbol *s = g_globals; s; s = s->next)
+        if (strcmp(s->name, name) == 0) return s->offset;
+        
     return 0; // Not found
 }
 
+static void dump_ast_asm(nu_ast_node_t *node, int depth) {
+    if (!node) return;
+    char buf[256];
+    char indent[32] = {0};
+    for (int i = 0; i < depth && i < 15; i++) strcat(indent, "  ");
+    
+    snprintf(buf, sizeof(buf), "# %s type=%d", indent, node->type);
+    
+    if (node->type == AST_IDENTIFIER || node->type == AST_STRING_LITERAL) {
+        if (node->val.str) snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " str='%s'", node->val.str);
+    } else if (node->type == AST_INTEGER_LITERAL) {
+        snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " int=%ld", (long)node->val.i64);
+    }
+    
+    char *dyn_str = nu_alloc(g_mm, strlen(buf) + 1);
+    strcpy(dyn_str, buf);
+    ir_insn_t insn = { .op = IR_INLINE_ASM, .label_name = dyn_str };
+    emit_ir(&insn);
+    
+    for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
+        dump_ast_asm(c, depth + 1);
+    }
+}
+
+static void extract_params(nu_ast_node_t *node, const char *func_name, int *param_idx) {
+    if (!node) return;
+    if (node->type == AST_COMPOUND_STATEMENT) return; // Do not enter the function body
+    
+    if (node->type == AST_IDENTIFIER && node->val.str) {
+        const char *name = node->val.str;
+        
+        if (strcmp(name, func_name) != 0 && 
+            strcmp(name, "int") != 0 && 
+            strcmp(name, "char") != 0 && 
+            strcmp(name, "void") != 0 && 
+            strcmp(name, "long") != 0) {
+            
+            if (lookup_var(name) == 0) {
+                int32_t offset = allocate_local(name);
+                Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
+                strcpy(s->name, name);
+                s->offset = offset;
+                s->next = g_symbols;
+                g_symbols = s;
+
+                ir_insn_t param_dec = {
+                    .op = IR_PARAM_DECL,
+                    .param_index = (*param_idx)++,
+                    .stack_offset = offset,
+                    .label_name = name
+                };
+                emit_ir(&param_dec);
+            }
+        }
+    }
+    
+    for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
+        extract_params(c, func_name, param_idx);
+    }
+}
+
 static int g_label_count = 0;
+static int g_implicit_param_idx = 0;
 
 void compile_ast(nu_ast_node_t *node) {
     if (!node) return;
@@ -52,41 +120,40 @@ void compile_ast(nu_ast_node_t *node) {
             break;
         }
 
-	case AST_INTEGER_LITERAL: {
+        case AST_INTEGER_LITERAL: {
             ir_insn_t load_imm = { .op = IR_LOAD_INT, .imm_val = node->val.i64 };
             emit_ir(&load_imm);
             break;
         }
 
-	case AST_DECLARATION: {
-	    if (!node->first_child) break;
-    
-	    nu_ast_node_t *decl_node = node->first_child;
-	    const char *name = find_identifier_str(decl_node);
-    
-	    if (!name) break; // Safety net
+        case AST_DECLARATION: {
+            if (!node->first_child) break;
+            
+            nu_ast_node_t *decl_node = node->first_child;
+            const char *name = find_identifier_str(decl_node);
+            
+            if (!name) break; 
 
-	    int32_t offset = allocate_local(name);
+            int32_t offset = allocate_local(name);
 
-	    Symbol *s = malloc(sizeof(Symbol));
-	    strcpy(s->name, name); 
-	    s->offset = offset; 
-	    s->next = g_symbols; 
-	    g_symbols = s;
+            Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
+            strcpy(s->name, name); 
+            s->offset = offset; 
+            s->next = g_symbols; 
+            g_symbols = s;
 
-	    // If it's an initialized declaration (e.g., int a = 5), decl_node is AST_ASSIGN_EXPR.
-	    // first_child is the LHS (the identifier), last_child is the RHS (the '5').
-	    if (decl_node->type == AST_ASSIGN_EXPR && 
-	        decl_node->first_child && 
-	        decl_node->last_child && 
-	        decl_node->first_child != decl_node->last_child) {
-        
-	        compile_ast(decl_node->last_child); // Evaluate the RHS
-	        ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = offset };
-	        emit_ir(&store);
-	    }
-	    break;
+            if (decl_node->type == AST_ASSIGN_EXPR && 
+                decl_node->first_child && 
+                decl_node->last_child && 
+                decl_node->first_child != decl_node->last_child) {
+            
+                compile_ast(decl_node->last_child);
+                ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = offset };
+                emit_ir(&store);
+            }
+            break;
         }
+
         case AST_ASSIGN_EXPR: {
             nu_ast_node_t *lhs = node->first_child;
             nu_ast_node_t *rhs = node->last_child;
@@ -96,24 +163,56 @@ void compile_ast(nu_ast_node_t *node) {
                 
                 int32_t offset = lookup_var(lhs->val.str);
                 
+                if (offset == 0) {
+                    offset = allocate_local(lhs->val.str);
+                    Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
+                    strcpy(s->name, lhs->val.str);
+                    s->offset = offset;
+                    s->next = g_symbols;
+                    g_symbols = s;
+
+                    ir_insn_t param_dec = {
+                        .op = IR_PARAM_DECL,
+                        .param_index = g_implicit_param_idx++,
+                        .stack_offset = offset,
+                        .label_name = lhs->val.str
+                    };
+                    emit_ir(&param_dec);
+                }
+                
                 ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = offset };
                 emit_ir(&store);
             } else {
-                // Fallback for complex assignments
                 for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
                     compile_ast(c);
                 }
             }
             break;
         }
+
         case AST_FUNCTION_DEF: {
             g_frame_offset = 0;
+            g_symbols = NULL;
+            g_implicit_param_idx = 0;
             
             const char *func_name = find_identifier_str(node);
             if (!func_name) func_name = "main";
 
             ir_insn_t start = { .op = IR_FUNC_START, .label_name = func_name };
             emit_ir(&start);
+            
+            //ir_insn_t dbg1 = { .op = IR_INLINE_ASM, .label_name = "# --- AST FUNC DUMP ---" };
+            //emit_ir(&dbg1);
+            //dump_ast_asm(node, 0);
+
+            int param_idx = 0;
+            for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
+                if (c->type != AST_COMPOUND_STATEMENT) {
+                    extract_params(c, func_name, &param_idx);
+                }
+            }
+            
+            g_implicit_param_idx = param_idx;
 
             for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
                 if (c->type == AST_COMPOUND_STATEMENT) {
@@ -132,9 +231,9 @@ void compile_ast(nu_ast_node_t *node) {
         case AST_BINARY_GT:
         case AST_BINARY_LE:
         case AST_BINARY_GE: {
-            compile_ast(node->first_child);               // Left
+            compile_ast(node->first_child);
             ir_insn_t push = { .op = IR_PUSH_TEMP }; emit_ir(&push);
-            compile_ast(node->first_child->next_sibling); // Right
+            compile_ast(node->first_child->next_sibling);
             ir_insn_t pop = { .op = IR_POP_TEMP }; emit_ir(&pop);
             
             ir_op_t opcode = IR_EQ; 
@@ -183,58 +282,77 @@ void compile_ast(nu_ast_node_t *node) {
             break;
         }
 
-	case AST_RETURN_STATEMENT: {
-	    nu_ast_node_t *expr = node->first_child;
+        case AST_RETURN_STATEMENT: {
+            nu_ast_node_t *expr = node->first_child;
 
-	    if (expr) {
-	        if (expr->type == AST_INTEGER_LITERAL) {
-	            ir_insn_t load_imm = { .op = IR_LOAD_INT, .imm_val = expr->val.i64 };
-	            emit_ir(&load_imm);
-	        } else {
-	            compile_ast(expr);
-	        }
-	    }
+            if (expr) {
+                if (expr->type == AST_INTEGER_LITERAL) {
+                    ir_insn_t load_imm = { .op = IR_LOAD_INT, .imm_val = expr->val.i64 };
+                    emit_ir(&load_imm);
+                } else {
+                    compile_ast(expr);
+                }
+            }
 
-	    ir_insn_t ret_insn = { .op = IR_RETURN };
-	    emit_ir(&ret_insn);
-	    break;
+            ir_insn_t ret_insn = { .op = IR_RETURN };
+            emit_ir(&ret_insn);
+            break;
         }
 
-	case AST_IDENTIFIER: {
-	        ir_insn_t load = { .op = IR_LOAD_LOCAL, .stack_offset = lookup_var(node->val.str) };
-	        emit_ir(&load);
-	        break;
-        }
-
-	case AST_BINARY_ADD: 
-        case AST_BINARY_SUB: 
-	case AST_BINARY_MUL: {
-		compile_ast(node->first_child);               // Left
-	        ir_insn_t push = { .op = IR_PUSH_TEMP }; emit_ir(&push);
-	        compile_ast(node->first_child->next_sibling); // Right
-	        ir_insn_t pop = { .op = IR_POP_TEMP }; emit_ir(&pop);
-
-		ir_op_t opcode = IR_ADD; // dummy init
-                if (node->type == AST_BINARY_ADD) opcode = IR_ADD;
-                else if (node->type == AST_BINARY_SUB) opcode = IR_SUB;
-                else if (node->type == AST_BINARY_MUL) opcode = IR_MUL;
+        case AST_IDENTIFIER: {
+            int32_t offset = lookup_var(node->val.str);
+            
+            if (offset == 0) {
+                offset = allocate_local(node->val.str);
+                Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
+                strcpy(s->name, node->val.str);
+                s->offset = offset;
+                s->next = g_symbols;
+                g_symbols = s;
                 
-                ir_insn_t op = { .op = opcode };
-                emit_ir(&op);
-	        break;
+                ir_insn_t param_dec = {
+                    .op = IR_PARAM_DECL,
+                    .param_index = g_implicit_param_idx++,
+                    .stack_offset = offset,
+                    .label_name = node->val.str
+                };
+                emit_ir(&param_dec);
+            }
+            
+            ir_insn_t load = { .op = IR_LOAD_LOCAL, .stack_offset = offset };
+            emit_ir(&load);
+            break;
         }
 
-	case AST_IF_STATEMENT: {
+        case AST_BINARY_ADD: 
+        case AST_BINARY_SUB: 
+        case AST_BINARY_MUL: {
+            compile_ast(node->first_child);
+            ir_insn_t push = { .op = IR_PUSH_TEMP }; emit_ir(&push);
+            compile_ast(node->first_child->next_sibling);
+            ir_insn_t pop = { .op = IR_POP_TEMP }; emit_ir(&pop);
+
+            ir_op_t opcode = IR_ADD;
+            if (node->type == AST_BINARY_ADD) opcode = IR_ADD;
+            else if (node->type == AST_BINARY_SUB) opcode = IR_SUB;
+            else if (node->type == AST_BINARY_MUL) opcode = IR_MUL;
+            
+            ir_insn_t op = { .op = opcode };
+            emit_ir(&op);
+            break;
+        }
+
+        case AST_IF_STATEMENT: {
            int label_else = g_label_count++;
            int label_end = g_label_count++;
            
-           compile_ast(node->first_child); // Condition
+           compile_ast(node->first_child); 
            ir_insn_t cmp = { .op = IR_CMP, .imm_val = 0 }; emit_ir(&cmp); 
-           ir_insn_t jmp_else = { .op = IR_JMP_Z, .imm_val = label_else }; emit_ir(&jmp_else);           
-           compile_ast(node->first_child->next_sibling); // IF Body
+           ir_insn_t jmp_else = { .op = IR_JMP_Z, .imm_val = label_else }; emit_ir(&jmp_else);            
+           compile_ast(node->first_child->next_sibling); 
            ir_insn_t jmp_end = { .op = IR_JMP, .imm_val = label_end }; emit_ir(&jmp_end);
            
-           ir_insn_t lbl_else = { .op = IR_LABEL, .imm_val = label_else }; emit_ir(&lbl_else);           
+           ir_insn_t lbl_else = { .op = IR_LABEL, .imm_val = label_else }; emit_ir(&lbl_else);            
            if (node->first_child->next_sibling->next_sibling) {
                compile_ast(node->first_child->next_sibling->next_sibling); 
            }
@@ -261,7 +379,7 @@ void compile_ast(nu_ast_node_t *node) {
 
             int arg_index = 0;
             for (nu_ast_node_t *arg = func_node->next_sibling; arg; arg = arg->next_sibling) {
-                compile_ast(arg); // Evaluates the argument
+                compile_ast(arg);
                 
                 ir_insn_t push_arg = { .op = IR_ARG_PUSH, .param_index = arg_index++ };
                 emit_ir(&push_arg);

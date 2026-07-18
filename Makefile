@@ -1,6 +1,13 @@
 PHONY :=
 
 CC = gcc
+
+CCACHE := $(shell command -v ccache 2> /dev/null)
+
+ifdef CCACHE
+    CC  := $(CCACHE) $(CC)
+endif
+
 COPTS =
 CFLAGS = $(COPTS) -std=c99 -Wall -Wextra -Iinclude -Iobj -Wno-unused
 CFLAGS += -D_POSIX_C_SOURCE=200809L -MMD -MP

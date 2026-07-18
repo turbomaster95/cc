@@ -204,10 +204,8 @@ void count(void)
 int check_type(void)
 {
     if (is_registered_type(yytext)) {
-	printf("[Lexer] Recognized TYPE_NAME: %s\n", yytext);
         return TYPE_NAME; 
     }
-    printf("[Lexer] Generic IDENTIFIER: %s\n", yytext);
     return IDENTIFIER;
 }
 
