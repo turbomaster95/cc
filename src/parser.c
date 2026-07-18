@@ -49,7 +49,6 @@ static KeywordFlag get_kw_flags(void) {
     if (!kw_map) return KW_NONE;
     uintptr_t flags = (uintptr_t)nu_map_get(kw_map, p.current.text);
     if ((flags & KW_C11) && !g_c11_enabled) return KW_NONE;
-    // if ((flags & KW_C23) && !g_c23_enabled) return KW_NONE; // Add C23 in the future? Maybe :p
     return (KeywordFlag)flags;
 }
 
@@ -63,8 +62,12 @@ static void advance(void) {
     p.peek.token = yylex();
     p.peek.val = yylval;
     
-    strncpy(p.peek.text, yytext, sizeof(p.peek.text) - 1);
-    p.peek.text[sizeof(p.peek.text) - 1] = '\0';
+    if (yytext) {
+        strncpy(p.peek.text, yytext, sizeof(p.peek.text) - 1);
+        p.peek.text[sizeof(p.peek.text) - 1] = '\0';
+    } else {
+        p.peek.text[0] = '\0';
+    }
 }
 
 static void init_parser(void) {
@@ -152,6 +155,7 @@ typedef struct {
 static nu_ast_node_t* parse_expr_with_precedence(Precedence prec);
 static const ParseRule* get_rule(int token_type);
 static nu_ast_node_t* parse_declarator(void);
+static int is_type_specifier_start(void);
 
 static nu_ast_node_t* prefix_identifier(void) {
     nu_ast_node_t *node = nu_ast_new_node(g_ast, AST_IDENTIFIER);
@@ -177,14 +181,45 @@ static nu_ast_node_t* prefix_string(void) {
 
 static nu_ast_node_t* prefix_grouping(void) {
     advance();
+    if (is_type_specifier_start()) {
+        nu_ast_node_t *type_decl = parse_declarator();
+        consume(')', "Expected matching ')' after compound literal type cast");
+        if (match('{')) {
+            advance();
+            nu_ast_node_t *init_list = NULL;
+            while (!match('}') && !match(TOKEN_EOF)) {
+                nu_ast_node_t *expr = parse_expr_with_precedence(PREC_ASSIGN);
+                init_list = link_sibling(init_list, expr);
+                if (match(',')) advance();
+                else break;
+            }
+            consume('}', "Expected closing '}' at end of compound literal");
+            return nu_ast_new_branch(g_ast, AST_COMPOUND_LITERAL, 2, type_decl, init_list);
+        }
+        return type_decl;
+    }
     nu_ast_node_t *node = parse_expr_with_precedence(PREC_COMMA);
     consume(')', "Expected matching ')'");
     return node;
 }
 
 static nu_ast_node_t* prefix_unary(void) {
+    int op = p.current.token;
     advance();
-    return parse_expr_with_precedence(PREC_UNARY);
+    nu_ast_node_t *operand = parse_expr_with_precedence(PREC_UNARY);
+    int type = AST_NONE;
+    switch (op) {
+        case '&': type = AST_UNARY_ADDRESS; break;
+        case '*': type = AST_UNARY_DEREFERENCE; break;
+        case '+': type = AST_UNARY_PLUS; break;
+        case '-': type = AST_UNARY_MINUS; break;
+        case '~': type = AST_UNARY_BIT_NOT; break;
+        case '!': type = AST_UNARY_LOGIC_NOT; break;
+        case INC_OP: type = AST_UNARY_PRE_INC; break;
+        case DEC_OP: type = AST_UNARY_PRE_DEC; break;
+        default: return operand;
+    }
+    return nu_ast_new_branch(g_ast, type, 1, operand);
 }
 
 static nu_ast_node_t* prefix_alignof(void) {
@@ -251,18 +286,39 @@ static nu_ast_node_t* infix_binary(nu_ast_node_t* left) {
         case '/': type = AST_BINARY_DIV; break;
         case '<': type = AST_BINARY_LT;  break;
         case '>': type = AST_BINARY_GT;  break;
+        case '|': type = AST_BINARY_BIT_OR; break;
+        case '^': type = AST_BINARY_BIT_XOR; break;
+        case '&': type = AST_BINARY_BIT_AND; break;
         case LE_OP: type = AST_BINARY_LE; break;
         case GE_OP: type = AST_BINARY_GE; break;
         case EQ_OP: type = AST_BINARY_EQ; break;
         case NE_OP: type = AST_BINARY_NE; break;
+        case AND_OP: type = AST_BINARY_LOGIC_AND; break;
+        case OR_OP:  type = AST_BINARY_LOGIC_OR;  break;
+        case LEFT_OP:  type = AST_BINARY_SHL; break;
+        case RIGHT_OP: type = AST_BINARY_SHR; break;
         default: return left;
     }
     return nu_ast_new_branch(g_ast, type, 2, left, right);
 }
 
 static nu_ast_node_t* infix_assignment(nu_ast_node_t* left) {
+    int op = p.current.token;
     advance();
     nu_ast_node_t *right = parse_expr_with_precedence(PREC_ASSIGN);
+    if (op != '=') {
+        int base_type = AST_NONE;
+        switch (op) {
+            case ADD_ASSIGN: base_type = AST_BINARY_ADD; break;
+            case SUB_ASSIGN: base_type = AST_BINARY_SUB; break;
+            case MUL_ASSIGN: base_type = AST_BINARY_MUL; break;
+            case DIV_ASSIGN: base_type = AST_BINARY_DIV; break;
+            case AND_ASSIGN: base_type = AST_BINARY_BIT_AND; break;
+            case OR_ASSIGN:  base_type = AST_BINARY_BIT_OR;  break;
+            case XOR_ASSIGN: base_type = AST_BINARY_BIT_XOR; break;
+        }
+        right = nu_ast_new_branch(g_ast, base_type, 2, left, right);
+    }
     return nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, left, right);
 }
 
@@ -319,7 +375,9 @@ static const ParseRule rules[] = {
     ['-']            = { prefix_unary,      infix_binary,      PREC_ADDITIVE },
     ['*']            = { prefix_unary,      infix_binary,      PREC_MULTIPLICATIVE },
     ['/']            = { prefix_unary,      infix_binary,      PREC_MULTIPLICATIVE },
-    ['&']            = { prefix_unary,      NULL,              PREC_NONE },
+    ['&']            = { prefix_unary,      infix_binary,      PREC_AND },
+    ['^']            = { NULL,              infix_binary,      PREC_XOR },
+    ['|']            = { NULL,              infix_binary,      PREC_OR },
     ['~']            = { prefix_unary,      NULL,              PREC_NONE },
     ['!']            = { prefix_unary,      NULL,              PREC_NONE },
     ['<']            = { NULL,              infix_binary,      PREC_COMPARISON },
@@ -328,9 +386,18 @@ static const ParseRule rules[] = {
     [GE_OP]          = { NULL,              infix_binary,      PREC_COMPARISON },
     [EQ_OP]          = { NULL,              infix_binary,      PREC_EQUALITY },
     [NE_OP]          = { NULL,              infix_binary,      PREC_EQUALITY },
+    [AND_OP]         = { NULL,              infix_binary,      PREC_LOGICAL_AND },
+    [OR_OP]          = { NULL,              infix_binary,      PREC_LOGICAL_OR },
+    [LEFT_OP]        = { NULL,              infix_binary,      PREC_SHIFT },
+    [RIGHT_OP]       = { NULL,              infix_binary,      PREC_SHIFT },
     ['=']            = { NULL,              infix_assignment,  PREC_ASSIGN },
     [ADD_ASSIGN]     = { NULL,              infix_assignment,  PREC_ASSIGN },
     [SUB_ASSIGN]     = { NULL,              infix_assignment,  PREC_ASSIGN },
+    [MUL_ASSIGN]     = { NULL,              infix_assignment,  PREC_ASSIGN },
+    [DIV_ASSIGN]     = { NULL,              infix_assignment,  PREC_ASSIGN },
+    [AND_ASSIGN]     = { NULL,              infix_assignment,  PREC_ASSIGN },
+    [OR_ASSIGN]      = { NULL,              infix_assignment,  PREC_ASSIGN },
+    [XOR_ASSIGN]     = { NULL,              infix_assignment,  PREC_ASSIGN },
     [ALIGN_OP]       = { prefix_alignof,    NULL,              PREC_NONE },
     [GENERIC]        = { prefix_generic,    NULL,              PREC_NONE },
 };
@@ -362,7 +429,12 @@ nu_ast_node_t* parse_expression(void) {
     return parse_expr_with_precedence(PREC_COMMA);
 }
 
-static nu_ast_node_t* parse_statement(void);
+static int is_type_specifier_start(void) {
+    KeywordFlag flags = get_kw_flags();
+    int tok = p.current.token;
+    return (flags & (KW_TYPE_SPEC | KW_STORAGE | KW_QUALIFIER | KW_ALIGN)) ||
+            tok == TYPE_NAME || (tok == IDENTIFIER && is_registered_type(p.current.text));
+}
 
 static int parse_declaration_specifiers(void) {
     int is_typedef = 0;
@@ -374,13 +446,12 @@ static int parse_declaration_specifiers(void) {
             is_typedef = 1;
         }
         
-        if ((flags & (KW_TYPE_SPEC | KW_STORAGE | KW_QUALIFIER)) || 
-            tok == TYPE_NAME || (tok == IDENTIFIER && is_registered_type(p.current.text))) {
+        if (is_type_specifier_start()) {
             advance();
         } else if (flags & KW_ALIGN) {
             advance();
             consume('(', "Expected '(' after alignment specifier");
-            parse_declarator(); // discard alignment declarator logic
+            parse_declarator(); 
             consume(')', "Expected matching ')'");
         } else {
             break;
@@ -392,7 +463,7 @@ static int parse_declaration_specifiers(void) {
 static nu_ast_node_t* parse_declarator(void) {
     while (match('*')) {
         advance();
-        while (get_kw_flags() & KW_QUALIFIER) { /* Naturally encompasses _Atomic thanks to flags! "Thank you flags", we all say in unison. */
+        while (get_kw_flags() & KW_QUALIFIER) {
             advance();
         }
     }
@@ -477,13 +548,11 @@ static nu_ast_node_t* parse_declaration(void) {
     return node;
 }
 
+static nu_ast_node_t* parse_statement(void);
+
 static nu_ast_node_t* parse_block_item(void) {
-    KeywordFlag flags = get_kw_flags();
     int tok = p.current.token;
-    
-    if ((flags & (KW_TYPE_SPEC | KW_STORAGE | KW_QUALIFIER | KW_ALIGN)) ||
-        tok == TYPE_NAME || (tok == IDENTIFIER && is_registered_type(p.current.text)) ||
-        (g_c11_enabled && tok == STATIC_ASSERT)) {
+    if (is_type_specifier_start() || (g_c11_enabled && tok == STATIC_ASSERT)) {
         return parse_declaration();
     }
     return parse_statement();

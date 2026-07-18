@@ -39,6 +39,8 @@ enum DSNodeTypes {
     AST_CONDITIONAL_EXPR,    /* The ternary operator `? :` */
     
     /* Binary Operators */
+    AST_BINARY_SHL,
+    AST_BINARY_SHR,
     AST_BINARY_ADD,
     AST_BINARY_SUB,
     AST_BINARY_MUL,
@@ -97,6 +99,7 @@ enum DSNodeTypes {
     AST_FLOAT_LITERAL,
     AST_STRING_LITERAL,
     AST_TYPE_NAME,
+    AST_COMPOUND_LITERAL,
 
     /* Specifiers, Qualifiers, & Typings */
     AST_TYPE_SPECIFIER,      /* void, char, int, etc. */
