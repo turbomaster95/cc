@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <nus.h>
 #include <compiler.h>
 
 static TSymb *g_TSymb_table = NULL;
@@ -9,7 +10,7 @@ void add_type(const char *name) {
     
     TSymb *curr = g_TSymb_table;
     while (curr != NULL) {
-        if (strcmp(curr->name, name) == 0) {
+        if (nu_strcmp(curr->name, name) == 0) {
             return; 
         }
         curr = curr->next;
@@ -17,7 +18,7 @@ void add_type(const char *name) {
 
     TSymb *new_sym = (TSymb *)malloc(sizeof(TSymb));
     if (new_sym) {
-        new_sym->name = strdup(name);
+        new_sym->name = nu_strdup(name);
         new_sym->next = g_TSymb_table;
         g_TSymb_table = new_sym;
     }
@@ -28,7 +29,7 @@ int is_registered_type(const char *name) {
     
     TSymb *curr = g_TSymb_table;
     while (curr != NULL) {
-        if (strcmp(curr->name, name) == 0) {
+        if (nu_strcmp(curr->name, name) == 0) {
             return 1; // It's a user-defined type!
         }
         curr = curr->next;

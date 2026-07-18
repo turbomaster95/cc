@@ -14,6 +14,7 @@ IS                      ((u|U)|(u|U)?(l|L|ll|LL)|(l|L|ll|LL)(u|U))
 #include <string.h>
 #include "compiler.h"
 #include "tab.h"
+#include <nus.h>
 
 void comment(void);
 void count(void);
@@ -73,7 +74,7 @@ void complain(void);
     count(); 
     int token = check_type();
     // Copy the text of the identifier over to Bison
-    yylval.str_val = strdup(yytext);
+    yylval.str_val = nu_strdup(yytext);
     return token;
 }
 
@@ -112,7 +113,7 @@ L?'(\\.|[^\\'\n])+'    {
 
 L?\"(\\.|[^\\"\n])*\"    { 
     count(); 
-    yylval.str_val = strdup(yytext);
+    yylval.str_val = nu_strdup(yytext);
     return(STRING_LITERAL); 
 }
 

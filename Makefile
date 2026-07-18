@@ -2,7 +2,8 @@ PHONY :=
 
 CC = gcc
 COPTS =
-CFLAGS = $(COPTS) -Wall -Wextra -Iinclude -Iobj -Wno-unused 
+CFLAGS = $(COPTS) -std=c99 -Wall -Wextra -Iinclude -Iobj -Wno-unused
+CFLAGS += -D_POSIX_C_SOURCE=200809L
 LIBS = obj/libnu.a
 LEX = flex
 YACC = bison -y -Wno-other -Wno-yacc -Wno-conflicts-sr
@@ -56,7 +57,7 @@ CLEAND += libnu/build
 CLEANF += libnu/configure
 $(OBJDIR)/libnu.a:
 	@mkdir -p $(OBJDIR)
-	(cd libnu && ./compile && cp include/nu.h ../include && cp build/libnu.a ../$(OBJDIR))
+	(cd libnu && ./compile && cp include/nu.h ../include && cp include/nus.h ../include && cp build/libnu.a ../$(OBJDIR))
 
 CLEANF += include/nu.h
 include/nu.h: $(OBJDIR)/libnu.a

@@ -15,6 +15,8 @@ YYSTYPE yylval;
 extern nu_mm_t *g_mm;
 extern nu_ast_t *g_ast;
 extern int g_c11_enabled;
+extern int is_registered_type(const char *name);
+extern void add_type(const char *name);
 
 typedef struct {
     int token;
@@ -28,6 +30,28 @@ typedef struct {
 } Parser;
 
 static Parser p;
+static nu_map_t *kw_map = NULL;
+
+typedef enum {
+    KW_NONE      = 0,
+    KW_TYPE_SPEC = 1 << 0,
+    KW_STORAGE   = 1 << 1,
+    KW_QUALIFIER = 1 << 2,
+    KW_ALIGN     = 1 << 3,
+    KW_C11       = 1 << 4
+} KeywordFlag;
+
+static void add_kw(const char *kw, KeywordFlag flags) {
+    nu_map_set(kw_map, kw, (void*)(uintptr_t)flags);
+}
+
+static KeywordFlag get_kw_flags(void) {
+    if (!kw_map) return KW_NONE;
+    uintptr_t flags = (uintptr_t)nu_map_get(kw_map, p.current.text);
+    if ((flags & KW_C11) && !g_c11_enabled) return KW_NONE;
+    // if ((flags & KW_C23) && !g_c23_enabled) return KW_NONE; // Add C23 in the future? Maybe :p
+    return (KeywordFlag)flags;
+}
 
 void yyerror(const char *s) {
     fflush(stdout);
@@ -44,6 +68,33 @@ static void advance(void) {
 }
 
 static void init_parser(void) {
+    kw_map = nu_map_create(g_mm, 64);
+    
+    // Core Types
+    add_kw("void", KW_TYPE_SPEC); add_kw("char", KW_TYPE_SPEC);
+    add_kw("short", KW_TYPE_SPEC); add_kw("int", KW_TYPE_SPEC);
+    add_kw("long", KW_TYPE_SPEC); add_kw("float", KW_TYPE_SPEC);
+    add_kw("double", KW_TYPE_SPEC); add_kw("signed", KW_TYPE_SPEC);
+    add_kw("unsigned", KW_TYPE_SPEC); add_kw("_Bool", KW_TYPE_SPEC);
+    add_kw("_Complex", KW_TYPE_SPEC); add_kw("_Imaginary", KW_TYPE_SPEC);
+    add_kw("struct", KW_TYPE_SPEC); add_kw("union", KW_TYPE_SPEC);
+    add_kw("enum", KW_TYPE_SPEC); 
+    
+    // Qualifiers
+    add_kw("const", KW_QUALIFIER); add_kw("volatile", KW_QUALIFIER);
+    add_kw("restrict", KW_QUALIFIER); add_kw("inline", KW_QUALIFIER);
+    
+    // Storage classes
+    add_kw("typedef", KW_STORAGE); add_kw("extern", KW_STORAGE);
+    add_kw("static", KW_STORAGE); add_kw("auto", KW_STORAGE);
+    add_kw("register", KW_STORAGE); 
+    
+    // C11 Features
+    add_kw("_Atomic", KW_TYPE_SPEC | KW_QUALIFIER | KW_C11);
+    add_kw("_Thread_local", KW_STORAGE | KW_C11);
+    add_kw("_Noreturn", KW_QUALIFIER | KW_C11);
+    add_kw("_Alignas", KW_ALIGN | KW_C11);
+    
     advance();
     advance();
 }
@@ -82,22 +133,10 @@ static nu_ast_node_t* link_sibling(nu_ast_node_t *head, nu_ast_node_t *next) {
 }
 
 typedef enum {
-    PREC_NONE,
-    PREC_COMMA,
-    PREC_ASSIGN,
-    PREC_CONDITIONAL,
-    PREC_LOGICAL_OR,
-    PREC_LOGICAL_AND,
-    PREC_OR,
-    PREC_XOR,
-    PREC_AND,
-    PREC_EQUALITY,
-    PREC_COMPARISON,
-    PREC_SHIFT,
-    PREC_ADDITIVE,
-    PREC_MULTIPLICATIVE,
-    PREC_UNARY,
-    PREC_POSTFIX,
+    PREC_NONE, PREC_COMMA, PREC_ASSIGN, PREC_CONDITIONAL,
+    PREC_LOGICAL_OR, PREC_LOGICAL_AND, PREC_OR, PREC_XOR,
+    PREC_AND, PREC_EQUALITY, PREC_COMPARISON, PREC_SHIFT,
+    PREC_ADDITIVE, PREC_MULTIPLICATIVE, PREC_UNARY, PREC_POSTFIX,
     PREC_PRIMARY
 } Precedence;
 
@@ -325,52 +364,23 @@ nu_ast_node_t* parse_expression(void) {
 
 static nu_ast_node_t* parse_statement(void);
 
-static int is_type_specifier(int tok) {
-    switch (tok) {
-        case VOID: case CHAR: case SHORT: case INT: case LONG:
-        case SIGNED: case UNSIGNED: case FLOAT: case DOUBLE:
-        case BOOL: case COMPLEX: case IMAGINARY: case STRUCT:
-        case UNION: case ENUM: case TYPE_NAME:
-            return 1;
-        case ATOMIC:
-            return g_c11_enabled;
-        default:
-            return 0;
-    }
-}
-
-static int is_storage_class_specifier(int tok) {
-    switch (tok) {
-        case TYPEDEF: case EXTERN: case STATIC: case AUTO: case REGISTER:
-            return 1;
-        case THREAD_LOCAL:
-            return g_c11_enabled;
-        default:
-            return 0;
-    }
-}
-
-static int is_alignment_specifier(int tok) {
-    return g_c11_enabled && (tok == ALIGNAS);
-}
-
 static int parse_declaration_specifiers(void) {
     int is_typedef = 0;
     while (1) {
+        KeywordFlag flags = get_kw_flags();
         int tok = p.current.token;
-        if (tok == TYPEDEF) {
+        
+        if (tok == TYPEDEF || strcmp(p.current.text, "typedef") == 0) {
             is_typedef = 1;
         }
         
-        if (is_storage_class_specifier(tok) || is_type_specifier(tok) ||
-            tok == CONST || tok == VOLATILE || tok == RESTRICT || tok == INLINE) {
+        if ((flags & (KW_TYPE_SPEC | KW_STORAGE | KW_QUALIFIER)) || 
+            tok == TYPE_NAME || (tok == IDENTIFIER && is_registered_type(p.current.text))) {
             advance();
-        } else if (g_c11_enabled && tok == NORETURN) {
+        } else if (flags & KW_ALIGN) {
             advance();
-        } else if (is_alignment_specifier(tok)) {
-            advance();
-            consume('(', "Expected '(' after _Alignas");
-            nu_ast_node_t *spec = parse_declarator();
+            consume('(', "Expected '(' after alignment specifier");
+            parse_declarator(); // discard alignment declarator logic
             consume(')', "Expected matching ')'");
         } else {
             break;
@@ -382,10 +392,11 @@ static int parse_declaration_specifiers(void) {
 static nu_ast_node_t* parse_declarator(void) {
     while (match('*')) {
         advance();
-        while (p.current.token == CONST || p.current.token == VOLATILE || p.current.token == RESTRICT || (g_c11_enabled && p.current.token == ATOMIC)) {
+        while (get_kw_flags() & KW_QUALIFIER) { /* Naturally encompasses _Atomic thanks to flags! "Thank you flags", we all say in unison. */
             advance();
         }
     }
+    
     nu_ast_node_t *decl_node = NULL;
     if (match(IDENTIFIER) || match(TYPE_NAME)) {
         decl_node = nu_ast_new_node(g_ast, AST_IDENTIFIER);
@@ -397,10 +408,13 @@ static nu_ast_node_t* parse_declarator(void) {
         decl_node = parse_declarator();
         consume(')', "Expected matching ')'");
     }
+    
     while (match('[') || match('(')) {
         int closer = match('[') ? ']' : ')';
         advance();
-        while (!match(closer) && !match(TOKEN_EOF)) advance();
+        while (!match(closer) && !match(TOKEN_EOF)) {
+            advance();
+        }
         consume(closer, closer == ']' ? "Expected matching ']'" : "Expected matching ')'");
     }
     return decl_node;
@@ -439,27 +453,11 @@ static nu_ast_node_t* parse_declaration(void) {
         return NULL;
     }
 
-    while (1) {
-        int tok = p.current.token;
-        if (is_storage_class_specifier(tok) || is_type_specifier(tok) ||
-            tok == CONST || tok == VOLATILE || tok == RESTRICT || tok == INLINE) {
-            advance();
-        } else if (g_c11_enabled && tok == NORETURN) {
-            advance();
-        } else if (is_alignment_specifier(tok)) {
-            advance();
-            consume('(', "Expected '(' after _Alignas");
-            nu_ast_node_t *spec = parse_declarator();
-            consume(')', "Expected matching ')'");
-        } else {
-            break;
-        }
-    }
     nu_ast_node_t *decl_list = NULL;
     while (1) {
         nu_ast_node_t *decl = parse_declarator();
 
-	if (is_typedef && decl && decl->type == AST_IDENTIFIER) {
+        if (is_typedef && decl && decl->type == AST_IDENTIFIER) {
             if (decl->val.str) {
                 add_type(decl->val.str);
             }
@@ -480,8 +478,12 @@ static nu_ast_node_t* parse_declaration(void) {
 }
 
 static nu_ast_node_t* parse_block_item(void) {
-    if (is_storage_class_specifier(p.current.token) || is_type_specifier(p.current.token) ||
-        is_alignment_specifier(p.current.token) || (g_c11_enabled && p.current.token == STATIC_ASSERT)) {
+    KeywordFlag flags = get_kw_flags();
+    int tok = p.current.token;
+    
+    if ((flags & (KW_TYPE_SPEC | KW_STORAGE | KW_QUALIFIER | KW_ALIGN)) ||
+        tok == TYPE_NAME || (tok == IDENTIFIER && is_registered_type(p.current.text)) ||
+        (g_c11_enabled && tok == STATIC_ASSERT)) {
         return parse_declaration();
     }
     return parse_statement();
@@ -579,8 +581,6 @@ nu_ast_node_t* parse_translation_unit(void) {
             if (decl && decl->type == AST_IDENTIFIER && decl->val.str) {
                 nu_ast_set_str(g_ast, unit, decl->val.str, strlen(decl->val.str));
             }
-	    if (unit->val.str) {
-	    }
         } else {
             if (match('=')) {
                 advance();
