@@ -61,7 +61,7 @@ static void advance(void) {
     p.current = p.peek;
     p.peek.token = yylex();
     p.peek.val = yylval;
-    
+
     if (yytext) {
         strncpy(p.peek.text, yytext, sizeof(p.peek.text) - 1);
         p.peek.text[sizeof(p.peek.text) - 1] = '\0';
@@ -72,7 +72,7 @@ static void advance(void) {
 
 static void init_parser(void) {
     kw_map = nu_map_create(g_mm, 64);
-    
+
     // Core Types
     add_kw("void", KW_TYPE_SPEC); add_kw("char", KW_TYPE_SPEC);
     add_kw("short", KW_TYPE_SPEC); add_kw("int", KW_TYPE_SPEC);
@@ -81,23 +81,23 @@ static void init_parser(void) {
     add_kw("unsigned", KW_TYPE_SPEC); add_kw("_Bool", KW_TYPE_SPEC);
     add_kw("_Complex", KW_TYPE_SPEC); add_kw("_Imaginary", KW_TYPE_SPEC);
     add_kw("struct", KW_TYPE_SPEC); add_kw("union", KW_TYPE_SPEC);
-    add_kw("enum", KW_TYPE_SPEC); 
-    
+    add_kw("enum", KW_TYPE_SPEC);
+
     // Qualifiers
     add_kw("const", KW_QUALIFIER); add_kw("volatile", KW_QUALIFIER);
     add_kw("restrict", KW_QUALIFIER); add_kw("inline", KW_QUALIFIER);
-    
+
     // Storage classes
     add_kw("typedef", KW_STORAGE); add_kw("extern", KW_STORAGE);
     add_kw("static", KW_STORAGE); add_kw("auto", KW_STORAGE);
-    add_kw("register", KW_STORAGE); 
-    
+    add_kw("register", KW_STORAGE);
+
     // C11 Features
     add_kw("_Atomic", KW_TYPE_SPEC | KW_QUALIFIER | KW_C11);
     add_kw("_Thread_local", KW_STORAGE | KW_C11);
     add_kw("_Noreturn", KW_QUALIFIER | KW_C11);
     add_kw("_Alignas", KW_ALIGN | KW_C11);
-    
+
     advance();
     advance();
 }
@@ -156,6 +156,20 @@ static nu_ast_node_t* parse_expr_with_precedence(Precedence prec);
 static const ParseRule* get_rule(int token_type);
 static nu_ast_node_t* parse_declarator(void);
 static int is_type_specifier_start(void);
+static int parse_declaration_specifiers(void);
+static nu_ast_node_t* parse_declaration(void);
+
+static const char* find_identifier_str(nu_ast_node_t *node) {
+    if (!node) return NULL;
+    if (node->type == AST_IDENTIFIER && node->val.str) {
+        return node->val.str;
+    }
+    for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
+        const char *s = find_identifier_str(c);
+        if (s) return s;
+    }
+    return NULL;
+}
 
 static nu_ast_node_t* prefix_identifier(void) {
     nu_ast_node_t *node = nu_ast_new_node(g_ast, AST_IDENTIFIER);
@@ -182,13 +196,36 @@ static nu_ast_node_t* prefix_string(void) {
 static nu_ast_node_t* prefix_grouping(void) {
     advance();
     if (is_type_specifier_start()) {
+        parse_declaration_specifiers();
         nu_ast_node_t *type_decl = parse_declarator();
         consume(')', "Expected matching ')' after compound literal type cast");
         if (match('{')) {
             advance();
             nu_ast_node_t *init_list = NULL;
             while (!match('}') && !match(TOKEN_EOF)) {
-                nu_ast_node_t *expr = parse_expr_with_precedence(PREC_ASSIGN);
+                if (match('.')) {
+                    advance();
+                    if (match(IDENTIFIER) || match(TYPE_NAME)) advance();
+                    if (match('=')) advance();
+                } else if (match('[')) {
+                    advance();
+                    parse_expr_with_precedence(PREC_COMMA);
+                    if (match(']')) advance();
+                    if (match('=')) advance();
+                }
+                nu_ast_node_t *expr = NULL;
+                if (match('{')) {
+                    advance();
+                    while (!match('}') && !match(TOKEN_EOF)) {
+                        nu_ast_node_t *sub_expr = parse_expr_with_precedence(PREC_ASSIGN);
+                        expr = link_sibling(expr, sub_expr);
+                        if (match(',')) advance();
+                        else break;
+                    }
+                    if (match('}')) advance();
+                } else {
+                    expr = parse_expr_with_precedence(PREC_ASSIGN);
+                }
                 init_list = link_sibling(init_list, expr);
                 if (match(',')) advance();
                 else break;
@@ -245,7 +282,7 @@ static nu_ast_node_t* prefix_generic(void) {
     consume('(', "Expected '(' after _Generic");
     nu_ast_node_t *controlling_expr = parse_expr_with_precedence(PREC_ASSIGN);
     consume(',', "Expected ',' after generic controlling expression");
-    
+
     nu_ast_node_t *assoc_list = NULL;
     while (1) {
         nu_ast_node_t *assoc = nu_ast_new_node(g_ast, AST_GENERIC_ASSOCIATION);
@@ -262,7 +299,7 @@ static nu_ast_node_t* prefix_generic(void) {
         nu_ast_node_t *expr = parse_expr_with_precedence(PREC_ASSIGN);
         nu_ast_add_child(assoc, expr);
         assoc_list = link_sibling(assoc_list, assoc);
-        
+
         if (match(',')) {
             advance();
         } else {
@@ -441,17 +478,48 @@ static int parse_declaration_specifiers(void) {
     while (1) {
         KeywordFlag flags = get_kw_flags();
         int tok = p.current.token;
-        
-        if (tok == TYPEDEF || strcmp(p.current.text, "typedef") == 0) {
+
+        if (tok == TYPEDEF || (p.current.text && strcmp(p.current.text, "typedef") == 0)) {
             is_typedef = 1;
-        }
-        
-        if (is_type_specifier_start()) {
+            advance();
+        } else if (tok == STRUCT || tok == UNION) {
+            advance();
+            if (match(IDENTIFIER) || match(TYPE_NAME)) {
+                advance();
+            }
+            if (match('{')) {
+                advance();
+                while (!match('}') && !match(TOKEN_EOF)) {
+                    parse_declaration();
+                }
+                consume('}', "Expected '}' after struct/union body");
+            }
+        } else if (tok == ENUM) {
+            advance();
+            if (match(IDENTIFIER) || match(TYPE_NAME)) {
+                advance();
+            }
+            if (match('{')) {
+                advance();
+                while (!match('}') && !match(TOKEN_EOF)) {
+                    if (match(IDENTIFIER) || match(TYPE_NAME)) {
+                        advance();
+                        if (match('=')) {
+                            advance();
+                            parse_expression();
+                        }
+                    }
+                    if (match(',')) advance();
+                    else break;
+                }
+                consume('}', "Expected '}' after enum body");
+            }
+        } else if (is_type_specifier_start()) {
             advance();
         } else if (flags & KW_ALIGN) {
             advance();
             consume('(', "Expected '(' after alignment specifier");
-            parse_declarator(); 
+            parse_declarator();
             consume(')', "Expected matching ')'");
         } else {
             break;
@@ -467,7 +535,7 @@ static nu_ast_node_t* parse_declarator(void) {
             advance();
         }
     }
-    
+
     nu_ast_node_t *decl_node = NULL;
     if (match(IDENTIFIER) || match(TYPE_NAME)) {
         decl_node = nu_ast_new_node(g_ast, AST_IDENTIFIER);
@@ -479,14 +547,18 @@ static nu_ast_node_t* parse_declarator(void) {
         decl_node = parse_declarator();
         consume(')', "Expected matching ')'");
     }
-    
+
     while (match('[') || match('(')) {
         int closer = match('[') ? ']' : ')';
+        int is_fn = (closer == ')');
         advance();
         while (!match(closer) && !match(TOKEN_EOF)) {
             advance();
         }
         consume(closer, closer == ']' ? "Expected matching ']'" : "Expected matching ')'");
+        if (is_fn && decl_node) {
+            decl_node = nu_ast_new_branch(g_ast, AST_FUNCTION_DECLARATOR, 1, decl_node);
+        }
     }
     return decl_node;
 }
@@ -500,13 +572,13 @@ static nu_ast_node_t* parse_static_assert(void) {
     consume('(', "Expected '(' after _Static_assert");
     nu_ast_node_t *expr = parse_expr_with_precedence(PREC_ASSIGN);
     consume(',', "Expected ',' after static assert expression");
-    
+
     char string_val[1024];
     strncpy(string_val, p.current.text, sizeof(string_val) - 1);
     consume(STRING_LITERAL, "Expected string literal diagnostic message");
     consume(')', "Expected matching ')'");
     consume(';', "Expected ';' after static assert");
-    
+
     nu_ast_node_t *msg_node = nu_ast_new_node(g_ast, AST_STRING_LITERAL);
     nu_ast_set_str(g_ast, msg_node, string_val + 1, strlen(string_val) - 2);
     return nu_ast_new_branch(g_ast, AST_STATIC_ASSERT, 2, expr, msg_node);
@@ -528,9 +600,10 @@ static nu_ast_node_t* parse_declaration(void) {
     while (1) {
         nu_ast_node_t *decl = parse_declarator();
 
-        if (is_typedef && decl && decl->type == AST_IDENTIFIER) {
-            if (decl->val.str) {
-                add_type(decl->val.str);
+        if (is_typedef && decl) {
+            const char *type_name = find_identifier_str(decl);
+            if (type_name) {
+                add_type(type_name);
             }
         }
 
@@ -543,6 +616,9 @@ static nu_ast_node_t* parse_declaration(void) {
         else break;
     }
     consume(';', "Expected ';' after declaration");
+    if (is_typedef) {
+        return NULL;
+    }
     nu_ast_node_t *node = nu_ast_new_node(g_ast, AST_DECLARATION);
     if (decl_list) nu_ast_add_child(node, decl_list);
     return node;
@@ -642,20 +718,26 @@ nu_ast_node_t* parse_translation_unit(void) {
             continue;
         }
         int is_typedef = parse_declaration_specifiers();
+        if (match(';')) {
+            advance();
+            continue;
+        }
         nu_ast_node_t *decl = parse_declarator();
 
-	if (is_typedef && decl && decl->type == AST_IDENTIFIER) {
-            if (decl->val.str) {
-                add_type(decl->val.str);
+        if (is_typedef && decl) {
+            const char *type_name = find_identifier_str(decl);
+            if (type_name) {
+                add_type(type_name);
             }
         }
 
         nu_ast_node_t *unit = NULL;
         if (match('{')) {
             unit = nu_ast_new_branch(g_ast, AST_FUNCTION_DEF, 2, decl, parse_compound_statement());
-            
-            if (decl && decl->type == AST_IDENTIFIER && decl->val.str) {
-                nu_ast_set_str(g_ast, unit, decl->val.str, strlen(decl->val.str));
+
+            const char *fname = find_identifier_str(decl);
+            if (fname) {
+                nu_ast_set_str(g_ast, unit, fname, strlen(fname));
             }
         } else {
             if (match('=')) {
@@ -663,8 +745,10 @@ nu_ast_node_t* parse_translation_unit(void) {
                 decl = nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, decl, parse_expression());
             }
             consume(';', "Expected ';' at declaration scope");
-            unit = nu_ast_new_node(g_ast, AST_DECLARATION);
-            if (decl) nu_ast_add_child(unit, decl);
+            if (!is_typedef) {
+                unit = nu_ast_new_node(g_ast, AST_DECLARATION);
+                if (decl) nu_ast_add_child(unit, decl);
+            }
         }
         if (!g_ast->root) {
             g_ast->root = nu_ast_new_branch(g_ast, AST_TRANSLATION_UNIT, 1, unit);

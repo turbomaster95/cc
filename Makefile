@@ -57,8 +57,8 @@ $(FRONTARG): src/front/*.c $(OBJDIR)/libnu.a FORCE
 	$(CC) $(CFLAGS) -MF $(OBJDIR)/front.d -o $@ src/front/*.c $(LIBS)
 
 CLEANF += $(OBJDIR)/libnu.a
-CLEAND += lib/libnu/build
-CLEANF += lib/libnu/configure
+DCLEAND += lib/libnu/build
+DCLEANF += lib/libnu/configure
 $(OBJDIR)/libnu.a:
 	@mkdir -p $(OBJDIR)
 	(cd lib/libnu && ./compile && cp include/nu.h ../../include && cp include/nus.h ../../include && cp build/libnu.a ../../$(OBJDIR))
@@ -68,10 +68,13 @@ include/nu.h: $(OBJDIR)/libnu.a
 
 PHONY += clean
 clean:
-	rm -f $(TARGET) $(CPPTARG) $(OBJS) $(DEPS) $(CLEANF) $(FRONTARG)
+	rm -f $(TARGET) $(CPPTARG) $(OBJS) $(DEPS) $(CLEANF) $(FRONTARG) c99*
 	rm -rf $(CLEAND)
 	rm -rf $(OBJDIR)
 
+PHONY += distclean
+distclean:
+	rm -rf $(DCLEANF) $(DCLEAND)
 PHONY += FORCE
 FORCE:
 

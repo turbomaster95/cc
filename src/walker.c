@@ -26,7 +26,6 @@ static const char* find_identifier_str(nu_ast_node_t *node) {
     return NULL;
 }
 
-
 typedef enum { SCOPE_LOCAL, SCOPE_GLOBAL } Scope;
 static int g_in_function = 0;
 
@@ -41,18 +40,22 @@ static Symbol *g_symbols = NULL;
 static Symbol *g_globals = NULL;
 
 static Symbol* find_symbol(const char *name) {
+    if (!name) return NULL;
     for (Symbol *s = g_symbols; s; s = s->next)
-        if (strcmp(s->name, name) == 0) return s;
+        if (s->name && strcmp(s->name, name) == 0) return s;
+    for (Symbol *s = g_globals; s; s = s->next)
+        if (s->name && strcmp(s->name, name) == 0) return s;
     return NULL;
 }
 
 static int32_t lookup_var(const char *name) {
-	for (Symbol *s = g_symbols; s; s = s->next)
-           if (strcmp(s->name, name) == 0) return s->offset;
-    
-        for (Symbol *s = g_globals; s; s = s->next)
-           if (strcmp(s->name, name) == 0) return s->offset;
-        
+    if (!name) return 0;
+    for (Symbol *s = g_symbols; s; s = s->next)
+        if (s->name && strcmp(s->name, name) == 0) return s->offset;
+
+    for (Symbol *s = g_globals; s; s = s->next)
+        if (s->name && strcmp(s->name, name) == 0) return s->offset;
+
     return 0; // Not found
 }
 
@@ -61,20 +64,20 @@ static void dump_ast_asm(nu_ast_node_t *node, int depth) {
     char buf[256];
     char indent[32] = {0};
     for (int i = 0; i < depth && i < 15; i++) strcat(indent, "  ");
-    
+
     snprintf(buf, sizeof(buf), "# %s type=%d", indent, node->type);
-    
+
     if (node->type == AST_IDENTIFIER || node->type == AST_STRING_LITERAL) {
         if (node->val.str) snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " str='%s'", node->val.str);
     } else if (node->type == AST_INTEGER_LITERAL) {
         snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " int=%ld", (long)node->val.i64);
     }
-    
+
     char *dyn_str = nu_alloc(g_mm, strlen(buf) + 1);
     strcpy(dyn_str, buf);
     ir_insn_t insn = { .op = IR_INLINE_ASM, .label_name = dyn_str };
     emit_ir(&insn);
-    
+
     for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
         dump_ast_asm(c, depth + 1);
     }
@@ -83,21 +86,26 @@ static void dump_ast_asm(nu_ast_node_t *node, int depth) {
 static void extract_params(nu_ast_node_t *node, const char *func_name, int *param_idx) {
     if (!node) return;
     if (node->type == AST_COMPOUND_STATEMENT) return; // Do not enter the function body
-    
+
     if (node->type == AST_IDENTIFIER && node->val.str) {
         const char *name = node->val.str;
-        
-        if (strcmp(name, func_name) != 0 && 
-            strcmp(name, "int") != 0 && 
-            strcmp(name, "char") != 0 && 
-            strcmp(name, "void") != 0 && 
-            strcmp(name, "long") != 0) {
-            
+
+        if (func_name && strcmp(name, func_name) != 0 &&
+            strcmp(name, "int") != 0 &&
+            strcmp(name, "char") != 0 &&
+            strcmp(name, "void") != 0 &&
+            strcmp(name, "long") != 0 &&
+            strcmp(name, "short") != 0 &&
+            strcmp(name, "float") != 0 &&
+            strcmp(name, "double") != 0 &&
+            strcmp(name, "struct") != 0) {
+
             if (lookup_var(name) == 0) {
                 int32_t offset = allocate_local(name);
                 Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
                 strcpy(s->name, name);
                 s->offset = offset;
+                s->scope = SCOPE_LOCAL;
                 s->next = g_symbols;
                 g_symbols = s;
 
@@ -111,7 +119,7 @@ static void extract_params(nu_ast_node_t *node, const char *func_name, int *para
             }
         }
     }
-    
+
     for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
         extract_params(c, func_name, param_idx);
     }
@@ -137,62 +145,63 @@ void compile_ast(nu_ast_node_t *node) {
             break;
         }
 
-	case AST_DECLARATION: {
-	        if (!node->first_child) break;
-	        nu_ast_node_t *decl_node = node->first_child;
-	        const char *name = find_identifier_str(decl_node);
-	        if (!name) break;
+        case AST_DECLARATION: {
+            if (!node->first_child) break;
+            nu_ast_node_t *decl_node = node->first_child;
 
-	        if (!g_in_function) { // GLOBAL DECLARATION
-	            Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
-	            strcpy(s->name, name); s->scope = SCOPE_GLOBAL;
-	            s->next = g_symbols; g_symbols = s;
-	            ir_insn_t decl = { .op = IR_GLOBAL_DECL, .label_name = name };
-	            emit_ir(&decl);
-	        } else { // LOCAL DECLARATION
-	            int32_t offset = allocate_local(name);
-	            Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
-	            strcpy(s->name, name); s->offset = offset; s->scope = SCOPE_LOCAL;
-	            s->next = g_symbols; g_symbols = s;
-	            if (decl_node->type == AST_ASSIGN_EXPR) {
-	                compile_ast(decl_node->last_child);
-	                ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = offset };
-	                emit_ir(&store);
-	            }
-	        }
-	        break;
+            if (decl_node->type == AST_FUNCTION_DECLARATOR) break;
+
+            const char *name = find_identifier_str(decl_node);
+            if (!name) break;
+
+            if (!g_in_function) { // GLOBAL DECLARATION
+                Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
+                strcpy(s->name, name); s->scope = SCOPE_GLOBAL;
+                s->next = g_globals; g_globals = s;
+                ir_insn_t decl = { .op = IR_GLOBAL_DECL, .label_name = name };
+                emit_ir(&decl);
+            } else { // LOCAL DECLARATION
+                int32_t offset = allocate_local(name);
+                Symbol *s = nu_alloc(g_mm, sizeof(Symbol));
+                strcpy(s->name, name); s->offset = offset; s->scope = SCOPE_LOCAL;
+                s->next = g_symbols; g_symbols = s;
+                if (decl_node->type == AST_ASSIGN_EXPR) {
+                    compile_ast(decl_node->last_child);
+                    ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = offset };
+                    emit_ir(&store);
+                }
+            }
+            break;
         }
 
-	case AST_ASSIGN_EXPR: {
-        	nu_ast_node_t *lhs = node->first_child;
-	        nu_ast_node_t *rhs = node->last_child;
-        	Symbol *s = find_symbol(lhs->val.str);
-	        compile_ast(rhs);
-	        if (s && s->scope == SCOPE_GLOBAL) {
-	            ir_insn_t store = { .op = IR_STORE_GLOBAL, .label_name = lhs->val.str };
-	            emit_ir(&store);
-	        } else {
-	            ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = s ? s->offset : 0 };
-	            emit_ir(&store);
-	        }
-	        break;
+        case AST_ASSIGN_EXPR: {
+            nu_ast_node_t *lhs = node->first_child;
+            nu_ast_node_t *rhs = node->last_child;
+            const char *lhs_name = (lhs && lhs->type == AST_IDENTIFIER) ? lhs->val.str : NULL;
+            Symbol *s = lhs_name ? find_symbol(lhs_name) : NULL;
+            compile_ast(rhs);
+            if (s && s->scope == SCOPE_GLOBAL) {
+                ir_insn_t store = { .op = IR_STORE_GLOBAL, .label_name = lhs_name };
+                emit_ir(&store);
+            } else if (s) {
+                ir_insn_t store = { .op = IR_STORE_LOCAL, .stack_offset = s->offset };
+                emit_ir(&store);
+            }
+            break;
         }
 
         case AST_FUNCTION_DEF: {
-	    g_in_function = 1;
+            g_in_function = 1;
             g_frame_offset = 0;
             g_symbols = NULL;
             g_implicit_param_idx = 0;
-            
-            const char *func_name = find_identifier_str(node);
+
+            const char *func_name = node->val.str;
+            if (!func_name) func_name = find_identifier_str(node);
             if (!func_name) func_name = "main";
 
             ir_insn_t start = { .op = IR_FUNC_START, .label_name = func_name };
             emit_ir(&start);
-            
-            //ir_insn_t dbg1 = { .op = IR_INLINE_ASM, .label_name = "# --- AST FUNC DUMP ---" };
-            //emit_ir(&dbg1);
-            //dump_ast_asm(node, 0);
 
             int param_idx = 0;
             for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
@@ -200,7 +209,7 @@ void compile_ast(nu_ast_node_t *node) {
                     extract_params(c, func_name, &param_idx);
                 }
             }
-            
+
             g_implicit_param_idx = param_idx;
 
             for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
@@ -211,7 +220,7 @@ void compile_ast(nu_ast_node_t *node) {
 
             ir_insn_t end = { .op = IR_FUNC_END, .label_name = func_name };
             emit_ir(&end);
-	    g_in_function = 0;
+            g_in_function = 0;
             break;
         }
 
@@ -225,8 +234,8 @@ void compile_ast(nu_ast_node_t *node) {
             ir_insn_t push = { .op = IR_PUSH_TEMP }; emit_ir(&push);
             compile_ast(node->first_child->next_sibling);
             ir_insn_t pop = { .op = IR_POP_TEMP }; emit_ir(&pop);
-            
-            ir_op_t opcode = IR_EQ; 
+
+            ir_op_t opcode = IR_EQ;
             switch(node->type) {
                 case AST_BINARY_EQ: opcode = IR_EQ; break;
                 case AST_BINARY_NE: opcode = IR_NE; break;
@@ -289,20 +298,44 @@ void compile_ast(nu_ast_node_t *node) {
             break;
         }
 
-	case AST_IDENTIFIER: {
-	        Symbol *s = find_symbol(node->val.str);
-	        if (s && s->scope == SCOPE_GLOBAL) {
-	            ir_insn_t load = { .op = IR_LOAD_GLOBAL, .label_name = node->val.str };
-	            emit_ir(&load);
-	        } else {
-	            ir_insn_t load = { .op = IR_LOAD_LOCAL, .stack_offset = s ? s->offset : 0 };
-	            emit_ir(&load);
-	        }
-	        break;
+        case AST_IDENTIFIER: {
+            if (!node->val.str) break;
+            Symbol *s = find_symbol(node->val.str);
+            if (s && s->scope == SCOPE_GLOBAL) {
+                ir_insn_t load = { .op = IR_LOAD_GLOBAL, .label_name = node->val.str };
+                emit_ir(&load);
+            } else if (s) {
+                ir_insn_t load = { .op = IR_LOAD_LOCAL, .stack_offset = s->offset };
+                emit_ir(&load);
+            } else {
+                ir_insn_t load = { .op = IR_LOAD_INT, .imm_val = 0 };
+                emit_ir(&load);
+            }
+            break;
         }
 
-        case AST_BINARY_ADD: 
-        case AST_BINARY_SUB: 
+        case AST_UNARY_POST_INC:
+        case AST_UNARY_POST_DEC:
+        case AST_UNARY_PRE_INC:
+        case AST_UNARY_PRE_DEC:
+        case AST_UNARY_ADDRESS:
+        case AST_UNARY_DEREFERENCE:
+        case AST_UNARY_PLUS:
+        case AST_UNARY_MINUS:
+        case AST_UNARY_BIT_NOT:
+        case AST_UNARY_LOGIC_NOT:
+        case AST_MEMBER_ACCESS:
+        case AST_MEMBER_DEREF:
+        case AST_ARRAY_REFERENCE:
+        case AST_COMPOUND_LITERAL: {
+            for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
+                compile_ast(c);
+            }
+            break;
+        }
+
+        case AST_BINARY_ADD:
+        case AST_BINARY_SUB:
         case AST_BINARY_MUL: {
             compile_ast(node->first_child);
             ir_insn_t push = { .op = IR_PUSH_TEMP }; emit_ir(&push);
@@ -313,28 +346,28 @@ void compile_ast(nu_ast_node_t *node) {
             if (node->type == AST_BINARY_ADD) opcode = IR_ADD;
             else if (node->type == AST_BINARY_SUB) opcode = IR_SUB;
             else if (node->type == AST_BINARY_MUL) opcode = IR_MUL;
-            
+
             ir_insn_t op = { .op = opcode };
             emit_ir(&op);
             break;
         }
 
         case AST_IF_STATEMENT: {
-           int label_else = g_label_count++;
-           int label_end = g_label_count++;
-           
-           compile_ast(node->first_child); 
-           ir_insn_t cmp = { .op = IR_CMP, .imm_val = 0 }; emit_ir(&cmp); 
-           ir_insn_t jmp_else = { .op = IR_JMP_Z, .imm_val = label_else }; emit_ir(&jmp_else);            
-           compile_ast(node->first_child->next_sibling); 
-           ir_insn_t jmp_end = { .op = IR_JMP, .imm_val = label_end }; emit_ir(&jmp_end);
-           
-           ir_insn_t lbl_else = { .op = IR_LABEL, .imm_val = label_else }; emit_ir(&lbl_else);            
-           if (node->first_child->next_sibling->next_sibling) {
-               compile_ast(node->first_child->next_sibling->next_sibling); 
-           }
-           ir_insn_t lbl_end = { .op = IR_LABEL, .imm_val = label_end }; emit_ir(&lbl_end);
-           break;
+            int label_else = g_label_count++;
+            int label_end = g_label_count++;
+
+            compile_ast(node->first_child);
+            ir_insn_t cmp = { .op = IR_CMP, .imm_val = 0 }; emit_ir(&cmp);
+            ir_insn_t jmp_else = { .op = IR_JMP_Z, .imm_val = label_else }; emit_ir(&jmp_else);
+            compile_ast(node->first_child->next_sibling);
+            ir_insn_t jmp_end = { .op = IR_JMP, .imm_val = label_end }; emit_ir(&jmp_end);
+
+            ir_insn_t lbl_else = { .op = IR_LABEL, .imm_val = label_else }; emit_ir(&lbl_else);
+            if (node->first_child->next_sibling->next_sibling) {
+                compile_ast(node->first_child->next_sibling->next_sibling);
+            }
+            ir_insn_t lbl_end = { .op = IR_LABEL, .imm_val = label_end }; emit_ir(&lbl_end);
+            break;
         }
 
         case AST_INLINE_ASM: {
@@ -357,7 +390,7 @@ void compile_ast(nu_ast_node_t *node) {
             int arg_index = 0;
             for (nu_ast_node_t *arg = func_node->next_sibling; arg; arg = arg->next_sibling) {
                 compile_ast(arg);
-                
+
                 ir_insn_t push_arg = { .op = IR_ARG_PUSH, .param_index = arg_index++ };
                 emit_ir(&push_arg);
             }
@@ -374,3 +407,4 @@ void compile_ast(nu_ast_node_t *node) {
             break;
     }
 }
+

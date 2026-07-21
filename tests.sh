@@ -15,7 +15,10 @@ fi
 
 for test_file in tests/*.c; do
     [ -e "$test_file" ] || continue
+    echo "==== Contents: $test_file ===="
+    cat $test_file
     echo "==== Running $test_file ===="
+
 
     "$COMPILER" "$test_file"
 

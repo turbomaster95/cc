@@ -5,8 +5,32 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <nu.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
-#define MEM_SIZE (1024 * 1024) // 1MB Pool
+static void find_c99_compiler(char *out_path, size_t max_len) {
+    strncpy(out_path, "c99x86", max_len);
+
+    DIR *dir = opendir(".");
+    if (!dir) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strncmp(entry->d_name, "c99", 3) == 0) {
+            struct stat st;
+            if (stat(entry->d_name, &st) == 0) {
+                if (S_ISREG(st.st_mode) && (st.st_mode & S_IXUSR)) {
+                    snprintf(out_path, max_len, "./%s", entry->d_name);
+                    closedir(dir);
+                    return;
+                }
+            }
+        }
+    }
+    closedir(dir);
+}
+
+#define MEM_SIZE (1024 * 1024 * 8) // 8MB Pool
 static uint8_t memory_pool[MEM_SIZE];
 
 typedef enum {
@@ -120,6 +144,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    char compiler_bin[256];
+    find_c99_compiler(compiler_bin, sizeof(compiler_bin));
+
     const char *input_file = ap->positionals[0];
     const char *output_file = opt_o.is_set ? opt_o.val.s : "a.out";
 
@@ -138,9 +165,6 @@ int main(int argc, char *argv[]) {
     bool created_s = false;
     bool created_o = false;
 
-    /* -------------------------------------------------------------
-     * STAGE 1: Preprocessor (cppc) -> .i
-     * ------------------------------------------------------------- */
     if (current_stage == STAGE_PREPROCESS) {
         const char *pp_out = opt_E.is_set ? output_file : i_file;
         char *cpp_args[] = { "cppc", (char *)input_file, "-o", (char *)pp_out, NULL };
@@ -159,14 +183,11 @@ int main(int argc, char *argv[]) {
         current_stage = STAGE_COMPILE;
     }
 
-    /* -------------------------------------------------------------
-     * STAGE 2: Compiler (c99x86) -> .s
-     * ------------------------------------------------------------- */
     if (current_stage == STAGE_COMPILE) {
         const char *comp_in = created_i ? i_file : input_file;
         const char *comp_out = opt_S.is_set ? output_file : s_file;
 
-        char *c99_args[] = { "c99x86", (char *)comp_in, "-o", (char *)comp_out, NULL };
+        char *c99_args[] = { compiler_bin, (char *)comp_in, "-o", (char *)comp_out, NULL };
         if (!run_cmd(c99_args)) {
             fprintf(stderr, "Error: Compilation failed.\n");
             if (created_i) unlink(i_file);
@@ -184,9 +205,6 @@ int main(int argc, char *argv[]) {
         current_stage = STAGE_ASSEMBLE;
     }
 
-    /* -------------------------------------------------------------
-     * STAGE 3 & 4: Assembler & Linker
-     * ------------------------------------------------------------- */
     if (asm_choice == ASM_GCC) {
         /* Direct assembly + linking via GCC driver */
         const char *gcc_in = created_s ? s_file : input_file;
