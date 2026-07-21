@@ -10,14 +10,13 @@ static void aarch64_emit(const ir_insn_t *insn) {
             break;
 
         case IR_PARAM_DECL: {
-            char *reg = "x0"; // Fallback
+            const char *reg = "x0"; // Fallback
             if (insn->param_index >= 0 && insn->param_index < 8) {
-                reg = (char*)aarch64_abi_regs[insn->param_index];
+                reg = aarch64_abi_regs[insn->param_index];
             }
 
-            int offset = insn->stack_offset < 0 ? -insn->stack_offset : insn->stack_offset;
             printf("\tstr %s, [x29, #%d] // Bind %s to %s\n", 
-                    reg, offset, insn->label_name, reg);
+                    reg, insn->stack_offset, insn->label_name, reg);
             break;
         }
 
@@ -25,11 +24,9 @@ static void aarch64_emit(const ir_insn_t *insn) {
             printf("\tmov x0, #%ld\n", (long)insn->imm_val); 
             break;
 
-        case IR_LOAD_LOCAL: {
-            int offset = insn->stack_offset < 0 ? -insn->stack_offset : insn->stack_offset;
-            printf("\tldr x0, [x29, #%d]\n", offset); 
+        case IR_LOAD_LOCAL:
+            printf("\tldr x0, [x29, #%d]\n", insn->stack_offset); 
             break;
-        }
 
         case IR_PUSH_TEMP:  
             printf("\tstr x0, [sp, #-16]!\n"); 
@@ -73,11 +70,9 @@ static void aarch64_emit(const ir_insn_t *insn) {
             printf("\tmul x0, x0, x1\n"); // x0 = x0 * x1
             break;
 
-        case IR_STORE_LOCAL: {
-            int offset = insn->stack_offset < 0 ? -insn->stack_offset : insn->stack_offset;
-            printf("\tstr x0, [x29, #%d]\n", offset);
+        case IR_STORE_LOCAL:
+            printf("\tstr x0, [x29, #%d]\n", insn->stack_offset);
             break;
-        }
 
         case IR_GLOBAL_DECL: {
             printf(".data\n%s: .quad 0\n.text\n", insn->label_name);
