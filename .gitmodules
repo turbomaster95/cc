@@ -1,3 +1,6 @@
 [submodule "libnu"]
-	path = libnu
+	path = lib/libnu
 	url = https://github.com/turbomaster95/libnu
+[submodule "lib/aic"]
+	path = lib/aic
+	url = https://github.com/turbomaster95/AIC-lib

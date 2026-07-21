@@ -3,6 +3,7 @@
 obj/
 c99x86
 cppc
+dcc
 
 # Prerequisites
 *.d

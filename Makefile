@@ -18,6 +18,7 @@ YACC = bison -y -Wno-other -Wno-yacc -Wno-conflicts-sr
 ARCH ?= x86
 TARGET = c99$(ARCH)
 CPPTARG = cppc
+FRONTARG = dcc
 
 OBJDIR = obj
 $(shell mkdir -p $(OBJDIR))
@@ -32,7 +33,7 @@ DEPS = $(OBJS:.o=.d)
 
 VPATH = src targets/$(ARCH)
 
-all: $(TARGET) $(CPPTARG)
+all: $(TARGET) $(CPPTARG) $(FRONTARG)
 
 $(OBJS): | $(OBJDIR)/libnu.a include/nu.h
 
@@ -52,19 +53,22 @@ $(TARGET): $(OBJS) FORCE
 $(CPPTARG): src/pp/*.c $(OBJDIR)/libnu.a FORCE
 	$(CC) $(CFLAGS) -MF $(OBJDIR)/cppc.d -o $@ src/pp/*.c $(LIBS)
 
+$(FRONTARG): src/front/*.c $(OBJDIR)/libnu.a FORCE
+	$(CC) $(CFLAGS) -MF $(OBJDIR)/front.d -o $@ src/front/*.c $(LIBS)
+
 CLEANF += $(OBJDIR)/libnu.a
-CLEAND += libnu/build
-CLEANF += libnu/configure
+CLEAND += lib/libnu/build
+CLEANF += lib/libnu/configure
 $(OBJDIR)/libnu.a:
 	@mkdir -p $(OBJDIR)
-	(cd libnu && ./compile && cp include/nu.h ../include && cp include/nus.h ../include && cp build/libnu.a ../$(OBJDIR))
+	(cd lib/libnu && ./compile && cp include/nu.h ../../include && cp include/nus.h ../../include && cp build/libnu.a ../../$(OBJDIR))
 
 CLEANF += include/nu.h
 include/nu.h: $(OBJDIR)/libnu.a
 
 PHONY += clean
 clean:
-	rm -f $(TARGET) $(CPPTARG) $(OBJS) $(DEPS) $(CLEANF)
+	rm -f $(TARGET) $(CPPTARG) $(OBJS) $(DEPS) $(CLEANF) $(FRONTARG)
 	rm -rf $(CLEAND)
 	rm -rf $(OBJDIR)
 

@@ -28,6 +28,7 @@ void complain(void);
 %%
 "/*"               { comment(); }
 "//"[^\n]*         { /* consume //-comment */ }
+^[ \t]*#.*[\r\n]   { /* ignore preprocessor directives */ }
 		   
 		   
 "auto"             { count(); return(AUTO); }

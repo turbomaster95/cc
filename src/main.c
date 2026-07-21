@@ -18,6 +18,7 @@ static void print_help(const char *prog_name) {
     printf("Usage: %s [options] <source_file>\n\n", prog_name);
     printf("Options:\n");
     printf("  -std, --std <standard>  The C Language standard to use\n");
+    printf("  -o, --output <file.s>   The output ASM file name\n");
     printf("  -h, --help              Show this help message\n");
 }
 
@@ -53,7 +54,17 @@ int main(int argc, char **argv) {
         .val.s = NULL
     };
 
+    nu_arg_def_t out_opt = {
+        .type = NU_ARG_STR,
+        .short_flag = "-o",
+        .long_flag = "--output",
+        .help = "The Output Assembly file",
+        .is_set = false,
+        .val.s = NULL
+    };
+
     nu_arg_register(ap, &std_opt);
+    nu_arg_register(ap, &out_opt);
 
     if (!nu_arg_parse(ap, argc, argv)) {
         nu_arg_destroy(ap);
@@ -98,6 +109,17 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    // Redirect standard output if -o / --output is specified
+    if (out_opt.is_set && out_opt.val.s) {
+        if (!freopen(out_opt.val.s, "w", stdout)) {
+            perror("Failed to open output assembly file");
+            fclose(file);
+            nu_arg_destroy(ap);
+            nu_mm_destroy(g_mm);
+            return EXIT_FAILURE;
+        }
+    }
+
     yyin = file;
     g_ast = nu_ast_create(g_mm);
 
@@ -106,7 +128,7 @@ int main(int argc, char **argv) {
             compile_ast(g_ast->root);
         }
     } else {
-        printf("Parsing failed.\n");
+        fprintf(stderr, "Parsing failed.\n");
         fclose(file);
         nu_ast_destroy(g_ast);
         nu_arg_destroy(ap);
@@ -120,3 +142,4 @@ int main(int argc, char **argv) {
     nu_mm_destroy(g_mm);
     return EXIT_SUCCESS;
 }
+
