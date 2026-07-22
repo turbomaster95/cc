@@ -31,6 +31,7 @@ typedef struct {
 
 static Parser p;
 static nu_map_t *kw_map = NULL;
+static nu_map_t *enum_const_map = NULL;
 
 typedef enum {
     KW_NONE      = 0,
@@ -72,6 +73,7 @@ static void advance(void) {
 
 static void init_parser(void) {
     kw_map = nu_map_create(g_mm, 64);
+    enum_const_map = nu_map_create(g_mm, 64);
 
     // Core Types
     add_kw("void", KW_TYPE_SPEC); add_kw("char", KW_TYPE_SPEC);
@@ -172,8 +174,19 @@ static const char* find_identifier_str(nu_ast_node_t *node) {
 }
 
 static nu_ast_node_t* prefix_identifier(void) {
+    char *name = p.current.text;
+    if (enum_const_map) {
+        uintptr_t stored = (uintptr_t)nu_map_get(enum_const_map, name);
+        if (stored != 0) {
+            long val = (long)stored - 1;
+            advance();
+            nu_ast_node_t *node = nu_ast_new_node(g_ast, AST_INTEGER_LITERAL);
+            nu_ast_set_int(node, val);
+            return node;
+        }
+    }
     nu_ast_node_t *node = nu_ast_new_node(g_ast, AST_IDENTIFIER);
-    char *saved_name = dup_string(p.current.text);
+    char *saved_name = dup_string(name);
     nu_ast_set_str(g_ast, node, saved_name, strlen(saved_name));
     advance();
     return node;
@@ -494,20 +507,31 @@ static int parse_declaration_specifiers(void) {
                 }
                 consume('}', "Expected '}' after struct/union body");
             }
-        } else if (tok == ENUM) {
+	} else if (tok == ENUM) {
             advance();
             if (match(IDENTIFIER) || match(TYPE_NAME)) {
                 advance();
             }
             if (match('{')) {
                 advance();
+                long current_val = 0;
                 while (!match('}') && !match(TOKEN_EOF)) {
                     if (match(IDENTIFIER) || match(TYPE_NAME)) {
+                        char *const_name = dup_string(p.current.text);
                         advance();
                         if (match('=')) {
                             advance();
-                            parse_expression();
+                            if (match(CONSTANT)) {
+                                current_val = p.current.val.int_val;
+                                advance();
+                            } else {
+                                parse_expression();
+                            }
                         }
+                        if (enum_const_map) {
+                            nu_map_set(enum_const_map, const_name, (void*)(uintptr_t)(current_val + 1));
+                        }
+                        current_val++;
                     }
                     if (match(',')) advance();
                     else break;
