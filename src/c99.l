@@ -16,65 +16,75 @@ IS                      ((u|U)|(u|U)?(l|L|ll|LL)|(l|L|ll|LL)(u|U))
 #include "tab.h"
 #include <nus.h>
 
+extern char *current_filename;
+extern int errlimt;
+
+int tok_line = 1;
+int tok_col  = 1;
+
+int line_no = 1;
+int column = 1;
+
+#define TOKEN_START() do { tok_line = line_no; tok_col = column; } while(0)
+
 void comment(void);
 void count(void);
  int check_type(void);
 void add_type(const char *name);
-void error(const char *s);
+void cerror(const char *s);
 void complain(void);
-
 %}
 
 %%
-"/*"               { comment(); }
+"/*"               { TOKEN_START(); comment(); }
 "//"[^\n]*         { /* consume //-comment */ }
-^[ \t]*#.*[\r\n]   { /* ignore preprocessor directives */ }
-		   
-		   
-"auto"             { count(); return(AUTO); }
-"_Bool"            { count(); return(BOOL); }
-"break"            { count(); return(BREAK); }
-"case"             { count(); return(CASE); }
-"char"             { count(); return(CHAR); }
-"_Complex"         { count(); return(COMPLEX); }
-"const"            { count(); return(CONST); }
-"continue"         { count(); return(CONTINUE); }
-"default"          { count(); return(DEFAULT); }
-"do"               { count(); return(DO); }
-"double"           { count(); return(DOUBLE); }
-"else"             { count(); return(ELSE); }
-"enum"             { count(); return(ENUM); }
-"extern"           { count(); return(EXTERN); }
-"float"            { count(); return(FLOAT); }
-"for"              { count(); return(FOR); }
-"goto"             { count(); return(GOTO); }
-"if"               { count(); return(IF); }
-"_Imaginary"       { count(); return(IMAGINARY); }
-"inline"           { count(); return(INLINE); }
-"asm"              { count(); return(ASM); }
-"__asm__"          { count(); return(ASM); }
-"int"              { count(); return(INT); }
-"long"             { count(); return(LONG); }
-"register"         { count(); return(REGISTER); }
-"restrict"         { count(); return(RESTRICT); }
-"return"           { count(); return(RETURN); }
-"short"            { count(); return(SHORT); }
-"signed"           { count(); return(SIGNED); }
-"sizeof"           { count(); return(SIZEOF); }
-"static"           { count(); return(STATIC); }
-"struct"           { count(); return(STRUCT); }
-"switch"           { count(); return(SWITCH); }
-"typedef"          { count(); return(TYPEDEF); }
-"union"            { count(); return(UNION); }
-"unsigned"         { count(); return(UNSIGNED); }
-"void"             { count(); return(VOID); }
-"volatile"         { count(); return(VOLATILE); }
-"while"            { count(); return(WHILE); }
+^[ \t]*#.*[\r\n]   { /* ignore preprocessor directives (for now) */ }
+
+"auto"             { TOKEN_START(); count(); return(AUTO); }
+"_Bool"            { TOKEN_START(); count(); return(BOOL); }
+"break"            { TOKEN_START(); count(); return(BREAK); }
+"case"             { TOKEN_START(); count(); return(CASE); }
+"char"             { TOKEN_START(); count(); return(CHAR); }
+"_Complex"         { TOKEN_START(); count(); return(COMPLEX); }
+"const"            { TOKEN_START(); count(); return(CONST); }
+"continue"         { TOKEN_START(); count(); return(CONTINUE); }
+"default"          { TOKEN_START(); count(); return(DEFAULT); }
+"do"               { TOKEN_START(); count(); return(DO); }
+"double"           { TOKEN_START(); count(); return(DOUBLE); }
+"else"             { TOKEN_START(); count(); return(ELSE); }
+"enum"             { TOKEN_START(); count(); return(ENUM); }
+"extern"           { TOKEN_START(); count(); return(EXTERN); }
+"float"            { TOKEN_START(); count(); return(FLOAT); }
+"for"              { TOKEN_START(); count(); return(FOR); }
+"goto"             { TOKEN_START(); count(); return(GOTO); }
+"if"               { TOKEN_START(); count(); return(IF); }
+"_Imaginary"       { TOKEN_START(); count(); return(IMAGINARY); }
+"inline"           { TOKEN_START(); count(); return(INLINE); }
+"asm"              { TOKEN_START(); count(); return(ASM); }
+"__asm__"          { TOKEN_START(); count(); return(ASM); }
+"int"              { TOKEN_START(); count(); return(INT); }
+"long"             { TOKEN_START(); count(); return(LONG); }
+"register"         { TOKEN_START(); count(); return(REGISTER); }
+"__register__"     { TOKEN_START(); count(); return(REGISTER); }
+"restrict"         { TOKEN_START(); count(); return(RESTRICT); }
+"return"           { TOKEN_START(); count(); return(RETURN); }
+"short"            { TOKEN_START(); count(); return(SHORT); }
+"signed"           { TOKEN_START(); count(); return(SIGNED); }
+"sizeof"           { TOKEN_START(); count(); return(SIZEOF); }
+"static"           { TOKEN_START(); count(); return(STATIC); }
+"struct"           { TOKEN_START(); count(); return(STRUCT); }
+"switch"           { TOKEN_START(); count(); return(SWITCH); }
+"typedef"          { TOKEN_START(); count(); return(TYPEDEF); }
+"union"            { TOKEN_START(); count(); return(UNION); }
+"unsigned"         { TOKEN_START(); count(); return(UNSIGNED); }
+"void"             { TOKEN_START(); count(); return(VOID); }
+"volatile"         { TOKEN_START(); count(); return(VOLATILE); }
+"__volatile__"     { TOKEN_START(); count(); return(VOLATILE); }
+"while"            { TOKEN_START(); count(); return(WHILE); }
 
 {L}({L}|{D})*        { 
     count(); 
     int token = check_type();
-    // Copy the text of the identifier over to Bison
     yylval.str_val = nu_strdup(yytext);
     return token;
 }
@@ -104,12 +114,12 @@ L?'(\\.|[^\\'\n])+'    {
     return(CONSTANT); 
 }
 
-{D}+{E}{FS}?                { count(); yylval.int_val = strtoll(yytext, NULL, 10); return(CONSTANT); }
-{D}*"."{D}+{E}?{FS}?        { count(); yylval.int_val = (int64_t)strtod(yytext, NULL); return(CONSTANT); }
-{D}+"."{D}*{E}?{FS}?        { count(); yylval.int_val = (int64_t)strtod(yytext, NULL); return(CONSTANT); }
-0[xX]{H}+{P}{FS}?           { count(); yylval.int_val = strtoll(yytext, NULL, 16); return(CONSTANT); }
-0[xX]{H}*"."{H}+{P}?{FS}?   { count(); yylval.int_val = strtoll(yytext, NULL, 16); return(CONSTANT); }
-0[xX]{H}+"."{H}*{P}?{FS}?   { count(); yylval.int_val = strtoll(yytext, NULL, 16); return(CONSTANT); }
+{D}+{E}{FS}?                { TOKEN_START(); count(); yylval.int_val = strtoll(yytext, NULL, 10); return(CONSTANT); }
+{D}*"."{D}+{E}?{FS}?        { TOKEN_START(); count(); yylval.int_val = (int64_t)strtod(yytext, NULL); return(CONSTANT); }
+{D}+"."{D}*{E}?{FS}?        { TOKEN_START(); count(); yylval.int_val = (int64_t)strtod(yytext, NULL); return(CONSTANT); }
+0[xX]{H}+{P}{FS}?           { TOKEN_START(); count(); yylval.int_val = strtoll(yytext, NULL, 16); return(CONSTANT); }
+0[xX]{H}*"."{H}+{P}?{FS}?   { TOKEN_START(); count(); yylval.int_val = strtoll(yytext, NULL, 16); return(CONSTANT); }
+0[xX]{H}+"."{H}*{P}?{FS}?   { TOKEN_START(); count(); yylval.int_val = strtoll(yytext, NULL, 16); return(CONSTANT); }
 
 
 L?\"(\\.|[^\\"\n])*\"    { 
@@ -118,89 +128,101 @@ L?\"(\\.|[^\\"\n])*\"    {
     return(STRING_LITERAL); 
 }
 
-"..."            { count(); return(ELLIPSIS); }
-">>="            { count(); return(RIGHT_ASSIGN); }
-"<<="            { count(); return(LEFT_ASSIGN); }
-"+="             { count(); return(ADD_ASSIGN); }
-"-="             { count(); return(SUB_ASSIGN); }
-"*="             { count(); return(MUL_ASSIGN); }
-"/="             { count(); return(DIV_ASSIGN); }
-"%="             { count(); return(MOD_ASSIGN); }
-"&="             { count(); return(AND_ASSIGN); }
-"^="             { count(); return(XOR_ASSIGN); }
-"|="             { count(); return(OR_ASSIGN); }
-">>"             { count(); return(RIGHT_OP); }
-"<<"             { count(); return(LEFT_OP); }
-"++"             { count(); return(INC_OP); }
-"--"             { count(); return(DEC_OP); }
-"->"             { count(); return(PTR_OP); }
-"&&"             { count(); return(AND_OP); }
-"||"             { count(); return(OR_OP); }
-"<="             { count(); return(LE_OP); }
-">="             { count(); return(GE_OP); }
-"=="             { count(); return(EQ_OP); }
-"!="             { count(); return(NE_OP); }
-";"              { count(); return(';'); }
-("{"|"<%")       { count(); return('{'); }
-("}"|"%>")       { count(); return('}'); }
-","              { count(); return(','); }
-":"              { count(); return(':'); }
-"="              { count(); return('='); }
-"("              { count(); return('('); }
-")"              { count(); return(')'); }
-("["|"<:")       { count(); return('['); }
-("]"|":>")       { count(); return(']'); }
-"."              { count(); return('.'); }
-"&"              { count(); return('&'); }
-"!"              { count(); return('!'); }
-"~"              { count(); return('~'); }
-"-"              { count(); return('-'); }
-"+"              { count(); return('+'); }
-"*"              { count(); return('*'); }
-"/"              { count(); return('/'); }
-"%"              { count(); return('%'); }
-"<"              { count(); return('<'); }
-">"              { count(); return('>'); }
-"^"              { count(); return('^'); }
-"|"              { count(); return('|'); }
-"?"              { count(); return('?'); }
+"..."            { TOKEN_START(); count(); return(ELLIPSIS); }
+">>="            { TOKEN_START(); count(); return(RIGHT_ASSIGN); }
+"<<="            { TOKEN_START(); count(); return(LEFT_ASSIGN); }
+"+="             { TOKEN_START(); count(); return(ADD_ASSIGN); }
+"-="             { TOKEN_START(); count(); return(SUB_ASSIGN); }
+"*="             { TOKEN_START(); count(); return(MUL_ASSIGN); }
+"/="             { TOKEN_START(); count(); return(DIV_ASSIGN); }
+"%="             { TOKEN_START(); count(); return(MOD_ASSIGN); }
+"&="             { TOKEN_START(); count(); return(AND_ASSIGN); }
+"^="             { TOKEN_START(); count(); return(XOR_ASSIGN); }
+"|="             { TOKEN_START(); count(); return(OR_ASSIGN); }
+">>"             { TOKEN_START(); count(); return(RIGHT_OP); }
+"<<"             { TOKEN_START(); count(); return(LEFT_OP); }
+"++"             { TOKEN_START(); count(); return(INC_OP); }
+"--"             { TOKEN_START(); count(); return(DEC_OP); }
+"->"             { TOKEN_START(); count(); return(PTR_OP); }
+"&&"             { TOKEN_START(); count(); return(AND_OP); }
+"||"             { TOKEN_START(); count(); return(OR_OP); }
+"<="             { TOKEN_START(); count(); return(LE_OP); }
+">="             { TOKEN_START(); count(); return(GE_OP); }
+"=="             { TOKEN_START(); count(); return(EQ_OP); }
+"!="             { TOKEN_START(); count(); return(NE_OP); }
+";"              { TOKEN_START(); count(); return(';'); }
+("{"|"<%")       { TOKEN_START(); count(); return('{'); }
+("}"|"%>")       { TOKEN_START(); count(); return('}'); }
+","              { TOKEN_START(); count(); return(','); }
+":"              { TOKEN_START(); count(); return(':'); }
+"="              { TOKEN_START(); count(); return('='); }
+"("              { TOKEN_START(); count(); return('('); }
+")"              { TOKEN_START(); count(); return(')'); }
+("["|"<:")       { TOKEN_START(); count(); return('['); }
+("]"|":>")       { TOKEN_START(); count(); return(']'); }
+"."              { TOKEN_START(); count(); return('.'); }
+"&"              { TOKEN_START(); count(); return('&'); }
+"!"              { TOKEN_START(); count(); return('!'); }
+"~"              { TOKEN_START(); count(); return('~'); }
+"-"              { TOKEN_START(); count(); return('-'); }
+"+"              { TOKEN_START(); count(); return('+'); }
+"*"              { TOKEN_START(); count(); return('*'); }
+"/"              { TOKEN_START(); count(); return('/'); }
+"%"              { TOKEN_START(); count(); return('%'); }
+"<"              { TOKEN_START(); count(); return('<'); }
+">"              { TOKEN_START(); count(); return('>'); }
+"^"              { TOKEN_START(); count(); return('^'); }
+"|"              { TOKEN_START(); count(); return('|'); }
+"?"              { TOKEN_START(); count(); return('?'); }
 
-[ \t\v\n\f]      { count(); }
-.                { count(); complain(); }
+[ \t\v\n\f]      { TOKEN_START(); count(); }
+.                {
+		    TOKEN_START();
+		    char msg[64];
+		    snprintf(msg, sizeof(msg), "unmatched character '%c'", yytext[0]);
+		    cerror(msg);
+		    count(); }
 
 %%
 
 void comment(void)
 {
-    char c, prev = 0;
-  
-    while ((c = input()) != 0)      /* (EOF maps to 0) */
-    {
-        if (c == '/' && prev == '*')
+    int c;
+    int prev = 0;
+
+    while ((c = input()) != 0) {
+        if (c == '\n') {
+            line_no++;
+            column = 1;
+        } else if (c == '\t') {
+            column += 8 - ((column - 1) % 8);
+        } else {
+            column++;
+        }
+
+        if (prev == '*' && c == '/')
             return;
+
         prev = c;
     }
-    error("unterminated comment");
+
+    cerror("unterminated comment");
 }
 
-
-int column = 0;
 
 void count(void)
 {
-    int i;
-
-    for (i = 0; yytext[i] != '\0'; i++)
-        if (yytext[i] == '\n')
-            column = 0;
-        else if (yytext[i] == '\t')
-            column += 8 - (column % 8);
-        else
+    for (int i = 0; yytext[i] != '\0'; i++) {
+        if (yytext[i] == '\n') {
+            line_no++;
+            column = 1;
+        } else if (yytext[i] == '\t') {
+            column += 8 - ((column - 1) % 8);
+        } else {
             column++;
-
-   // ECHO;
+        }
+    }
 }
-
 
 int check_type(void)
 {
@@ -210,9 +232,23 @@ int check_type(void)
     return IDENTIFIER;
 }
 
-void error(const char *s)
+int errcnt = 0;
+
+void cerror(const char *s)
 {
-    fprintf(stderr, "Lexical Error: %s\n", s);
+    fprintf(stderr, "%s:%d:%d: \x1b[91mError:\x1b[0m %s\n",
+            current_filename ? current_filename : "<input>",
+            tok_line, tok_col, s);
+
+    // --err-limit=10 -> errlimt = 10, so wait 10 errors until exit
+    // default errlimt = 3, so wait 3 errors until exit
+
+    errcnt++;
+    if (errcnt >= errlimt) {
+      printf("\x1b[91mError:\x1b[0m Error Count reached!\n");
+      printf("\x1b[32mTip:\x1b[0m Set -el or --error-limit to increase/decrease this limit.\n");
+      exit(0);
+    }
 }
 
 void complain(void)

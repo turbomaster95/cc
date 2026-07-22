@@ -3,6 +3,10 @@
 
 static const char* aarch64_abi_regs[] = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
 
+void parser_init_hook(void) {
+	// do nothing
+}
+
 static void aarch64_emit(const ir_insn_t *insn) {
     switch (insn->op) {
         case IR_FUNC_START:
@@ -14,7 +18,7 @@ static void aarch64_emit(const ir_insn_t *insn) {
             if (insn->param_index >= 0 && insn->param_index < 8) {
                 reg = aarch64_abi_regs[insn->param_index];
             }
-            printf("\tstr %s, [x29, #%d] // Bind %s to %s\n",
+            printf("\tstr %s, [x29, #%d] ; Bind %s to %s\n",
                     reg, insn->stack_offset, insn->label_name, reg);
             break;
         }
@@ -40,14 +44,12 @@ static void aarch64_emit(const ir_insn_t *insn) {
             break;
 
         case IR_ARG_PUSH:
-            // Park relative to x29 (Frame Pointer) instead of the volatile stack pointer!
             if (insn->param_index < 8) {
-                printf("\tstr x0, [x29, #-%d] // Park Arg %d\n", 192 - (insn->param_index * 8), insn->param_index);
+                printf("\tstr x0, [x29, #-%d] ; Park Arg %d\n", 192 - (insn->param_index * 8), insn->param_index);
             }
             break;
 
         case IR_CALL:
-            // Load all parked arguments into AAPCS64 registers
             printf("\tldr x0, [x29, #-192]\n");
             printf("\tldr x1, [x29, #-184]\n");
             printf("\tldr x2, [x29, #-176]\n");
@@ -105,7 +107,6 @@ static void aarch64_emit(const ir_insn_t *insn) {
             printf("\tb.eq .L%ld\n", insn->imm_val);
             break;
 
-        // AArch64 relational evaluation order was actually correct!
         case IR_EQ:
             printf("\tcmp x1, x0\n\tcset x0, eq\n"); break;
         case IR_NE:
@@ -136,12 +137,40 @@ static void aarch64_emit(const ir_insn_t *insn) {
             printf("\tadd x0, x0, #:lo12:.L_STR_%lx\n", (unsigned long)insn->label_name);
             break;
 
+        case IR_LEA_LOCAL:
+            if (insn->label_name) {
+                printf("\tadrp x0, %s\n", insn->label_name);
+                printf("\tadd x0, x0, #:lo12:%s\n", insn->label_name);
+            } else {
+                printf("\tadd x0, x29, #%d\n", insn->stack_offset);
+            }
+            break;
+
+        case IR_LOAD_DEREF:
+            printf("\tldr x0, [x0]\n");
+            break;
+
+        case IR_STORE_DEREF:
+            printf("\tstr x0, [x1]\n");
+            break;
+
+        case IR_MEMBER_OFFSET:
+            printf("\tadd x0, x0, #%ld\n", (long)insn->imm_val);
+            break;
+
+        case IR_INDEX_OFFSET: {
+            long scale = insn->imm_val ? insn->imm_val : 8;
+            printf("\tmov x2, #%ld\n", scale);
+            printf("\tmul x0, x0, x2\n");
+            printf("\tadd x0, x0, x1\n");
+            break;
+        }
+
         default:
-            printf("// undefined opcode %d\n", insn->op);
+            printf("; undefined opcode %d\n", insn->op);
             break;
     }
 }
 
 const target_ops_t aarch64_target = { .target_name = "aarch64", .emit = aarch64_emit };
 const target_ops_t *g_target = &aarch64_target;
-

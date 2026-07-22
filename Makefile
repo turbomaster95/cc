@@ -9,7 +9,7 @@ ifdef CCACHE
 endif
 
 COPTS =
-CFLAGS = $(COPTS) -std=c99 -Wall -Wextra -Iinclude -Iobj -Wno-unused
+CFLAGS = $(COPTS) -std=c99 -Wall -Wextra -Iinclude -Iobj -Wno-unused -Wno-address
 CFLAGS += -D_POSIX_C_SOURCE=200809L -MMD -MP
 LIBS = obj/libnu.a
 LEX = flex

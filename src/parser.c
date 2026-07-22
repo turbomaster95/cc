@@ -17,6 +17,8 @@ extern nu_ast_t *g_ast;
 extern int g_c11_enabled;
 extern int is_registered_type(const char *name);
 extern void add_type(const char *name);
+extern void parser_init_hook(void);
+extern void register_struct(const char *name, nu_ast_node_t *member_list);
 
 typedef struct {
     int token;
@@ -54,8 +56,14 @@ static KeywordFlag get_kw_flags(void) {
 }
 
 void yyerror(const char *s) {
-    fflush(stdout);
-    printf("\n%*s\n%*s\n", column, "^", column, s);
+    fprintf(stderr, "error: %s", s);
+    if (p.current.text[0] != '\0' && p.current.token != 0) {
+        fprintf(stderr, " before '%s'", p.current.text);
+    }
+    fprintf(stderr, " (col %d)\n", column);
+    if (column > 0) {
+        fprintf(stderr, "%*s\n", column, "^");
+    }
 }
 
 static void advance(void) {
@@ -71,8 +79,14 @@ static void advance(void) {
     }
 }
 
+static int64_t ast_get_int(nu_ast_node_t *node) {
+    if (!node) return 0;
+    return node->val.i64;
+}
+
 static void init_parser(void) {
     kw_map = nu_map_create(g_mm, 64);
+    parser_init_hook();
     enum_const_map = nu_map_create(g_mm, 64);
 
     // Core Types
@@ -160,6 +174,7 @@ static nu_ast_node_t* parse_declarator(void);
 static int is_type_specifier_start(void);
 static int parse_declaration_specifiers(void);
 static nu_ast_node_t* parse_declaration(void);
+static nu_ast_node_t* parse_statement(void);
 
 static const char* find_identifier_str(nu_ast_node_t *node) {
     if (!node) return NULL;
@@ -171,6 +186,43 @@ static const char* find_identifier_str(nu_ast_node_t *node) {
         if (s) return s;
     }
     return NULL;
+}
+
+static nu_ast_node_t* parse_initializer(void) {
+    if (match('{')) {
+        advance();
+        nu_ast_node_t *init_list = NULL;
+        while (!match('}') && !match(TOKEN_EOF)) {
+            while (match('.') || match('[')) {
+                if (match('.')) {
+                    advance();
+                    if (match(IDENTIFIER) || match(TYPE_NAME)) {
+                        advance();
+                    }
+                } else if (match('[')) {
+                    advance();
+                    parse_expr_with_precedence(PREC_COMMA);
+                    consume(']', "Expected ']' after array designator");
+                }
+                if (match('=')) {
+                    advance();
+                }
+            }
+
+            nu_ast_node_t *sub_init = parse_initializer();
+            init_list = link_sibling(init_list, sub_init);
+
+            if (match(',')) {
+                advance();
+            } else {
+                break;
+            }
+        }
+        consume('}', "Expected closing '}' in initializer");
+        return init_list;
+    } else {
+        return parse_expr_with_precedence(PREC_ASSIGN);
+    }
 }
 
 static nu_ast_node_t* prefix_identifier(void) {
@@ -206,6 +258,39 @@ static nu_ast_node_t* prefix_string(void) {
     return node;
 }
 
+static nu_ast_node_t* parse_for_statement(void) {
+    consume(FOR, "Expected 'for'");
+    consume('(', "Expected '(' after 'for'");
+
+    nu_ast_node_t *init_node = NULL;
+    if (!match(';')) {
+        if (is_type_specifier_start()) {
+            init_node = parse_declaration();
+        } else {
+            init_node = parse_expr_with_precedence(PREC_COMMA);
+            consume(';', "Expected ';' after for-loop initializer");
+        }
+    } else {
+        consume(';', "Expected ';'");
+    }
+
+    nu_ast_node_t *cond_node = NULL;
+    if (!match(';')) {
+        cond_node = parse_expr_with_precedence(PREC_COMMA);
+    }
+    consume(';', "Expected ';' after for-loop condition");
+
+    nu_ast_node_t *inc_node = NULL;
+    if (!match(')')) {
+        inc_node = parse_expr_with_precedence(PREC_COMMA);
+    }
+    consume(')', "Expected ')' after for-loop increment");
+
+    nu_ast_node_t *body_node = parse_statement();
+
+    return nu_ast_new_branch(g_ast, AST_FOR_STATEMENT, 4, init_node, cond_node, inc_node, body_node);
+}
+
 static nu_ast_node_t* prefix_grouping(void) {
     advance();
     if (is_type_specifier_start()) {
@@ -216,30 +301,19 @@ static nu_ast_node_t* prefix_grouping(void) {
             advance();
             nu_ast_node_t *init_list = NULL;
             while (!match('}') && !match(TOKEN_EOF)) {
-                if (match('.')) {
-                    advance();
-                    if (match(IDENTIFIER) || match(TYPE_NAME)) advance();
-                    if (match('=')) advance();
-                } else if (match('[')) {
-                    advance();
-                    parse_expr_with_precedence(PREC_COMMA);
-                    if (match(']')) advance();
-                    if (match('=')) advance();
-                }
-                nu_ast_node_t *expr = NULL;
-                if (match('{')) {
-                    advance();
-                    while (!match('}') && !match(TOKEN_EOF)) {
-                        nu_ast_node_t *sub_expr = parse_expr_with_precedence(PREC_ASSIGN);
-                        expr = link_sibling(expr, sub_expr);
-                        if (match(',')) advance();
-                        else break;
+                while (match('.') || match('[')) {
+                    if (match('.')) {
+                        advance();
+                        if (match(IDENTIFIER) || match(TYPE_NAME)) advance();
+                    } else if (match('[')) {
+                        advance();
+                        parse_expr_with_precedence(PREC_COMMA);
+                        consume(']', "Expected ']' in designator index");
                     }
-                    if (match('}')) advance();
-                } else {
-                    expr = parse_expr_with_precedence(PREC_ASSIGN);
+                    if (match('=')) advance();
                 }
-                init_list = link_sibling(init_list, expr);
+                nu_ast_node_t *sub_init = parse_initializer();
+                init_list = link_sibling(init_list, sub_init);
                 if (match(',')) advance();
                 else break;
             }
@@ -352,6 +426,19 @@ static nu_ast_node_t* infix_binary(nu_ast_node_t* left) {
     return nu_ast_new_branch(g_ast, type, 2, left, right);
 }
 
+static nu_ast_node_t* clone_ast_node(nu_ast_node_t *node) {
+    if (!node) return NULL;
+    nu_ast_node_t *copy = nu_ast_new_node(g_ast, node->type);
+    copy->val = node->val;
+    if (node->val.str) {
+        copy->val.str = dup_string(node->val.str);
+    }
+    for (nu_ast_node_t *c = node->first_child; c; c = c->next_sibling) {
+        nu_ast_add_child(copy, clone_ast_node(c));
+    }
+    return copy;
+}
+
 static nu_ast_node_t* infix_assignment(nu_ast_node_t* left) {
     int op = p.current.token;
     advance();
@@ -367,7 +454,7 @@ static nu_ast_node_t* infix_assignment(nu_ast_node_t* left) {
             case OR_ASSIGN:  base_type = AST_BINARY_BIT_OR;  break;
             case XOR_ASSIGN: base_type = AST_BINARY_BIT_XOR; break;
         }
-        right = nu_ast_new_branch(g_ast, base_type, 2, left, right);
+        right = nu_ast_new_branch(g_ast, base_type, 2, clone_ast_node(left), right);
     }
     return nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, left, right);
 }
@@ -486,6 +573,8 @@ static int is_type_specifier_start(void) {
             tok == TYPE_NAME || (tok == IDENTIFIER && is_registered_type(p.current.text));
 }
 
+static nu_ast_node_t* last_parsed_struct_members = NULL;
+
 static int parse_declaration_specifiers(void) {
     int is_typedef = 0;
     while (1) {
@@ -495,19 +584,28 @@ static int parse_declaration_specifiers(void) {
         if (tok == TYPEDEF || (p.current.text && strcmp(p.current.text, "typedef") == 0)) {
             is_typedef = 1;
             advance();
-        } else if (tok == STRUCT || tok == UNION) {
+	} else if (tok == STRUCT || tok == UNION) {
             advance();
+            char *struct_name = NULL;
             if (match(IDENTIFIER) || match(TYPE_NAME)) {
+                struct_name = dup_string(p.current.text);
                 advance();
             }
             if (match('{')) {
                 advance();
+                nu_ast_node_t *member_list = NULL;
                 while (!match('}') && !match(TOKEN_EOF)) {
-                    parse_declaration();
+                    nu_ast_node_t *member = parse_declaration();
+                    member_list = link_sibling(member_list, member);
                 }
                 consume('}', "Expected '}' after struct/union body");
+                if (struct_name) {
+                    register_struct(struct_name, member_list);
+                } else {
+                    last_parsed_struct_members = member_list;
+                }
             }
-	} else if (tok == ENUM) {
+        } else if (tok == ENUM) {
             advance();
             if (match(IDENTIFIER) || match(TYPE_NAME)) {
                 advance();
@@ -525,7 +623,7 @@ static int parse_declaration_specifiers(void) {
                                 current_val = p.current.val.int_val;
                                 advance();
                             } else {
-                                parse_expression();
+                                parse_initializer();
                             }
                         }
                         if (enum_const_map) {
@@ -545,7 +643,7 @@ static int parse_declaration_specifiers(void) {
             consume('(', "Expected '(' after alignment specifier");
             parse_declarator();
             consume(')', "Expected matching ')'");
-        } else {
+	} else {
             break;
         }
     }
@@ -553,7 +651,9 @@ static int parse_declaration_specifiers(void) {
 }
 
 static nu_ast_node_t* parse_declarator(void) {
+    int ptr_depth = 0;
     while (match('*')) {
+        ptr_depth++;
         advance();
         while (get_kw_flags() & KW_QUALIFIER) {
             advance();
@@ -573,17 +673,54 @@ static nu_ast_node_t* parse_declarator(void) {
     }
 
     while (match('[') || match('(')) {
-        int closer = match('[') ? ']' : ')';
-        int is_fn = (closer == ')');
+        int is_fn = match('(');
         advance();
-        while (!match(closer) && !match(TOKEN_EOF)) {
-            advance();
-        }
-        consume(closer, closer == ']' ? "Expected matching ']'" : "Expected matching ')'");
-        if (is_fn && decl_node) {
-            decl_node = nu_ast_new_branch(g_ast, AST_FUNCTION_DECLARATOR, 1, decl_node);
+        if (is_fn) {
+            nu_ast_node_t *param_list = NULL;
+            if (!match(')')) {
+                while (!match(')') && !match(TOKEN_EOF)) {
+                    if (match(IDENTIFIER) && strcmp(p.current.text, "void") == 0) {
+                        advance();
+                    } else if (is_type_specifier_start()) {
+                        parse_declaration_specifiers();
+                        nu_ast_node_t *param_decl = parse_declarator();
+                        if (param_decl) {
+                            param_list = link_sibling(param_list, param_decl);
+                        }
+                    } else {
+                        advance();
+                    }
+                    if (match(',')) {
+                        advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            consume(')', "Expected matching ')'");
+            if (decl_node) {
+                decl_node = nu_ast_new_branch(g_ast, AST_FUNCTION_DECLARATOR, 2, decl_node, param_list);
+            }
+        } else {
+            nu_ast_node_t *size_expr = NULL;
+	    if (!match(']')) {
+                size_expr = parse_expr_with_precedence(PREC_COMMA);
+            } else {
+                size_expr = nu_ast_new_node(g_ast, AST_INTEGER_LITERAL);
+                nu_ast_set_int(size_expr, 0);
+            }
+            consume(']', "Expected matching ']'");
+            if (decl_node) {
+                decl_node = nu_ast_new_branch(g_ast, AST_ARRAY_REFERENCE, 2, decl_node, size_expr);
+            }
         }
     }
+
+    while (ptr_depth > 0) {
+        decl_node = nu_ast_new_branch(g_ast, AST_UNARY_DEREFERENCE, 1, decl_node);
+        ptr_depth--;
+    }
+
     return decl_node;
 }
 
@@ -608,6 +745,15 @@ static nu_ast_node_t* parse_static_assert(void) {
     return nu_ast_new_branch(g_ast, AST_STATIC_ASSERT, 2, expr, msg_node);
 }
 
+static int count_siblings(nu_ast_node_t *node) {
+    int count = 0;
+    while (node) {
+        count++;
+        node = node->next_sibling;
+    }
+    return count;
+}
+
 static nu_ast_node_t* parse_declaration(void) {
     if (g_c11_enabled && match(STATIC_ASSERT)) {
         return parse_static_assert();
@@ -628,13 +774,24 @@ static nu_ast_node_t* parse_declaration(void) {
             const char *type_name = find_identifier_str(decl);
             if (type_name) {
                 add_type(type_name);
+                if (last_parsed_struct_members) {
+                    register_struct(type_name, last_parsed_struct_members);
+                    last_parsed_struct_members = NULL;
+                }
             }
         }
 
-        if (match('=')) {
-            advance();
-            decl = nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, decl, parse_expression());
-        }
+	if (match('=')) {
+	        advance();
+	        nu_ast_node_t *init = parse_initializer();
+		if (decl && decl->type == AST_ARRAY_REFERENCE) {
+	            nu_ast_node_t *size_node = decl->first_child ? decl->first_child->next_sibling : NULL;
+	            if (size_node && size_node->type == AST_INTEGER_LITERAL && ast_get_int(size_node) == 0) {
+	                nu_ast_set_int(size_node, count_siblings(init));
+	            }
+	        }
+	        decl = nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, decl, init);
+	}
         decl_list = link_sibling(decl_list, decl);
         if (match(',')) advance();
         else break;
@@ -697,6 +854,7 @@ static nu_ast_node_t* parse_statement(void) {
     if (match('{')) return parse_compound_statement();
     if (match(IF)) return parse_if_statement();
     if (match(WHILE)) return parse_while_statement();
+    if (match(FOR)) return parse_for_statement();
     if (match(RETURN)) {
         advance();
         if (match(';')) {
@@ -752,6 +910,10 @@ nu_ast_node_t* parse_translation_unit(void) {
             const char *type_name = find_identifier_str(decl);
             if (type_name) {
                 add_type(type_name);
+                if (last_parsed_struct_members) {
+                    register_struct(type_name, last_parsed_struct_members);
+                    last_parsed_struct_members = NULL;
+                }
             }
         }
 
@@ -766,7 +928,14 @@ nu_ast_node_t* parse_translation_unit(void) {
         } else {
             if (match('=')) {
                 advance();
-                decl = nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, decl, parse_expression());
+                nu_ast_node_t *init = parse_initializer();
+		if (decl && decl->type == AST_ARRAY_REFERENCE) {
+			nu_ast_node_t *size_node = decl->first_child ? decl->first_child->next_sibling : NULL;
+	                if (size_node && size_node->type == AST_INTEGER_LITERAL && ast_get_int(size_node) == 0) {
+		                nu_ast_set_int(size_node, count_siblings(init));
+	                }
+	        }
+                decl = nu_ast_new_branch(g_ast, AST_ASSIGN_EXPR, 2, decl, init);
             }
             consume(';', "Expected ';' at declaration scope");
             if (!is_typedef) {

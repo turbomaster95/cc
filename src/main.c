@@ -8,6 +8,9 @@
 extern int yyparse(void);
 extern FILE* yyin;
 extern void set_parser_ast_target(nu_ast_t *ast);
+const char *current_filename = NULL;
+
+int errlimt = (int)5;
 
 nu_mm_t *g_mm = NULL;
 nu_ast_t *g_ast = NULL;
@@ -17,9 +20,10 @@ int g_c11_enabled = 0;
 static void print_help(const char *prog_name) {
     printf("Usage: %s [options] <source_file>\n\n", prog_name);
     printf("Options:\n");
-    printf("  -std, --std <standard>  The C Language standard to use\n");
-    printf("  -o, --output <file.s>   The output ASM file name\n");
-    printf("  -h, --help              Show this help message\n");
+    printf("  -std, --std <standard>   The C Language standard to use\n");
+    printf("  -el, --error-limit <int> The Maximum Error limit before it stops\n");
+    printf("  -o, --output <file.s>    The output ASM file name\n");
+    printf("  -h, --help               Show this help message\n");
 }
 
 int main(int argc, char **argv) {
@@ -63,8 +67,18 @@ int main(int argc, char **argv) {
         .val.s = NULL
     };
 
+    nu_arg_def_t errlimt_opt = {
+        .type = NU_ARG_STR,
+        .short_flag = "-el",
+        .long_flag = "--error-limit",
+        .help = "The Maximum Error limit before it stops",
+        .is_set = false,
+        .val.s = NULL
+    };
+
     nu_arg_register(ap, &std_opt);
     nu_arg_register(ap, &out_opt);
+    nu_arg_register(ap, &errlimt_opt);
 
     if (!nu_arg_parse(ap, argc, argv)) {
         nu_arg_destroy(ap);
@@ -101,6 +115,11 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    if (errlimt_opt.is_set && errlimt_opt.val.s) {
+	int x = (int)strtoll(errlimt_opt.val.s, NULL, 10);
+	errlimt = x;
+    }
+
     FILE *file = fopen(source_path, "r");
     if (!file) {
         perror("Failed to open input file");
@@ -108,6 +127,8 @@ int main(int argc, char **argv) {
         nu_mm_destroy(g_mm);
         return EXIT_FAILURE;
     }
+
+    current_filename = source_path;
 
     // Redirect standard output if -o / --output is specified
     if (out_opt.is_set && out_opt.val.s) {

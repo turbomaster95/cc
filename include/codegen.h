@@ -5,43 +5,69 @@
 
 struct nu_ast_node;
 
+#define IR_OP_LIST(X) \
+    X(IR_FUNC_START)    \
+    X(IR_FUNC_END)      \
+    X(IR_RETURN)        \
+    \
+    X(IR_LOAD_INT)      \
+    X(IR_LOAD_LOCAL)    \
+    X(IR_STORE_LOCAL)   \
+    X(IR_STORE_GLOBAL)  \
+    X(IR_LOAD_GLOBAL)   \
+    \
+    X(IR_LEA_LOCAL)     \
+    X(IR_LOAD_DEREF)    \
+    X(IR_STORE_DEREF)   \
+    \
+    X(IR_PUSH_TEMP)     \
+    X(IR_POP_TEMP)      \
+    \
+    X(IR_MEMBER_OFFSET) \
+    X(IR_INDEX_OFFSET)  \
+    \
+    X(IR_ADD)           \
+    X(IR_SUB)           \
+    X(IR_MUL)           \
+    X(IR_DIV)           \
+    \
+    X(IR_EQ)            \
+    X(IR_NE)            \
+    X(IR_LT)            \
+    X(IR_GT)            \
+    X(IR_LE)            \
+    X(IR_GE)            \
+    \
+    X(IR_PARAM_DECL)   \
+    X(IR_GLOBAL_DECL)  \
+    X(IR_ARG_PUSH)     \
+    X(IR_CALL)         \
+    X(IR_LABEL)        \
+    X(IR_JMP)          \
+    X(IR_JMP_Z)        \
+    X(IR_JMP_NZ)       \
+    X(IR_CMP)          \
+    X(IR_INLINE_ASM)   \
+    X(IR_LOAD_STRING)
+
 typedef enum {
-    IR_FUNC_START,   // Starts a function block
-    IR_FUNC_END,     // Ends a function block
-    IR_RETURN,
-
-    // Symbol Operations
-    IR_LOAD_INT,       // Load immediate value into virtual accumulator
-    IR_LOAD_LOCAL,     // Load variable value from symbolic offset
-    IR_STORE_LOCAL,    // Store virtual accumulator into symbolic offset
-    IR_STORE_GLOBAL,
-    IR_LOAD_GLOBAL,
-    
-    // Pointer & Memory Operations
-    IR_LEA_LOCAL,      // Load absolute address of a local variable
-    IR_LOAD_DEREF,     // Read from address currently in accumulator
-    IR_STORE_DEREF,    // Store value into address currently in accumulator
-
-    // Expression Processing
-    IR_PUSH_TEMP,      // Push virtual accumulator onto a virtual evaluation stack
-    IR_POP_TEMP,       // Pop virtual stack into an auxiliary virtual register
-
-    // Mathematical operations
-    IR_ADD, IR_SUB, IR_MUL, IR_DIV,
-    IR_EQ, IR_NE, IR_LT, IR_GT, IR_LE, IR_GE,  
-    
-    IR_PARAM_DECL,     // Mid-end declares an incoming parameter: label_name at stack_offset
-    IR_GLOBAL_DECL,
-    IR_ARG_PUSH,       // Push an argument expression for an upcoming function call
-    IR_CALL,           // Execute call to target label string
-    IR_LABEL,          // Marker for jump targets
-    IR_JMP,            // Unconditional jump
-    IR_JMP_Z,          // Jump if zero
-    IR_JMP_NZ,         // Jump if not zero
-    IR_CMP,            // Compare top two values on stack
-    IR_INLINE_ASM,
-    IR_LOAD_STRING,    // Load string literal address
+#define X(name) name,
+    IR_OP_LIST(X)
+#undef X
 } ir_op_t;
+
+static inline const char* ir_op_name(ir_op_t op) {
+    static const char* const names[] = {
+#define X(name) #name,
+        IR_OP_LIST(X)
+#undef X
+    };
+
+    unsigned u = (unsigned)op;
+    unsigned n = (unsigned)(sizeof(names) / sizeof(names[0]));
+    return (u < n) ? names[u] : "(unknown)";
+}
+
 
 typedef struct {
     ir_op_t op;
